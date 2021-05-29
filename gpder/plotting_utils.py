@@ -11,41 +11,39 @@ def plot_gpr(X_train, y_train, dX_train, dy_train,
              samples=[], F=None, name_save=None):
     """Plotts the data and samples used in the GPR.
 
-    Parameters
-        X_train: array of shape (n_samples, n_features)
+    Arguments
+    ---------
+    X_train: ndarray of shape (n, nfeatures)
         Training data array.
 
-        y_train : array of shape (n_samples,) or (n_samples, n_targets)
+    y_train : ndarray of shape (nx,) or (n, n_targets)
         Training target values.
 
-        dX : array of shape (n_samples, n_features), default=[]
-        Training data array of the derivative observations.
-
-        dy : array of shape (n_samples,) or (n_samples, n_targets),
-        default=[]
-        Training target values of the derivative observations.
-
-        X_star : array pf shape (n_samples, n_features)
+    X_star : ndarray of shape (nx_star, n_features)
         Data used in the regression.
 
-        mu_star :
+    mu_star : ndarray of shape (nx_star, n_features)
         Mean of the predicted Gaussian distribution.
 
-        std_star :
+    std_star : ndarray of shape (nx_star, n_features)
         Standard deviation of the predicted Gaussian distribution.
 
-        samples : []
-        Idk
+    samples : ndarray of shape (n_samples, nx_star)
+        Data arrays sampled from a multivariate normal
+        distribution with the center and covariance given
+        by the gpr.
 
-        F : callable, optional
-        If given, the true function
+    F : callable, optional
+        True function. If passed, F is evaluated at std_star
+        as a reference.
 
-        name_save : string, optional
-        Name to use when saving the plot
+    name_save : string, optional
+        File name for saving the plot.
     """
 
     uncert95 = 1.96*std_star
-    plt.fill_between(X_star, mu_star+uncert95, mu_star-uncert95, alpha=0.1)
+    plt.figure(figsize=(8, 6), dpi=80)
+    plt.fill_between(X_star, mu_star+uncert95, mu_star-uncert95, alpha=0.2)
     plt.plot(X_star, mu_star, color='navy', label='Mean')
     plt.plot(X_train, y_train, 'rx', label='Training points')
     for i, sample in enumerate(samples):
@@ -54,7 +52,9 @@ def plot_gpr(X_train, y_train, dX_train, dy_train,
         plt.plot(X_star, F(X_star), alpha=0.5, color='blueviolet',
                  label='True function')
 
-    plt.legend()
+    plt.legend(fontsize=14)
+    plt.xlabel("X", fontsize=14)
+    plt.ylabel("F", fontsize=14)
     if name_save:
         plt.savefig(name_save)
     plt.show()
@@ -65,9 +65,9 @@ def plot_approximation(gpr, X, Y, X_sample, Y_sample, X_next=None,
     ax = axs if axs is not None else plt.gca()
     mu, _, std = gpr.predict(X, return_std=True)
     ax.fill_between(X.ravel(),
-                     mu.ravel() + 1.96 * std,
-                     mu.ravel() - 1.96 * std,
-                     alpha=0.1)
+                    mu.ravel() + 1.96 * std,
+                    mu.ravel() - 1.96 * std,
+                    alpha=0.1)
     ax.plot(X, Y, 'y--', lw=1, label='Noise-free objective')
     ax.plot(X, mu, 'b-', lw=1, label='Surrogate function')
     ax.plot(X_sample, Y_sample, 'kx', mew=3, label='Noisy samples')
