@@ -17,11 +17,11 @@ __all__ = ['GPKernel']
 from .utils import _atleast2d
 
 class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
-    """Kernel for Gaussian Process Eegression (GPR).
+    """Kernel for Gaussian Process Regression (GPR).
 
-    Kernel is an application of the radial-basis function
+    GPKernel is an application of the radial-basis function
     (RBF) weighted by a constant kernel, in addition to a
-    white noise kernel. The Kernel is summarized as :
+    white noise kernel. GPKernel is summarized as :
 
     .. math::
         k(x, dx) = \\alpha * RBF(X, Y, \\sigma) + \\nu \\delta
@@ -41,31 +41,33 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     constant_value_bounds: "fixed" or pair of floats >= 0,
         default=(1e-5, 1e5)
-        The lower and upper bounds of constant_value.
+        The lower and upper bounds of 'constant_value'.
         If "fixed", constant_value parameter is not changed during
         the hyperparameter tunning.
 
-    length_scale: float or ndimarray of shape (n_features,), default=1.0
-        Length scale of the modified RBF kernel.
+    length_scale: float or ndimarray of shape (n_features,),
+        default=1.0
+        Length scale of the RBF kernel.
         If a float, an isotropic kernel is used.
-        If an array, and anisotropic_length_scale kernel is used where the mag. of
-        each entry in the array defines the length-scale of the
-        respective feature dimension.
+        If an array, and anisotropic_length_scale kernel is used
+        where the mag. of each entry in the array defines the
+        length-scale of the respective feature dimension.
 
     length_scale_bounds: "fixed" or pair of floats >= 0,
         default=(1e-5, 1e5)
-        The lower and upper bounds of length_scale.
-        If "fixed", the length_scale parameter is not changed during
-        the hyperparameter tunning.
+        The lower and upper bounds of 'length_scale'.
+        If "fixed", the length_scale parameter is not changed
+        during the hyperparameter tunning.
 
     noise_level: float or None, default=1.0
-        Parameter controlling the noise level (variance) of the white
-        noise kernel. If None, the noise level is set to 1e-12 to with
-        "fixed" bounds to approximate non-noisy kernel.
+        Parameter controlling the noise level of X.
+        If None or 0, the noise level is
+        set to 1e-12 with "fixed" bounds to approximate
+        non-noisy kernel.
 
     noise_level_bounds: "fixed" or pair of floats >= 0,
         default=(1e-5, 1e5)
-        The lower and upper bounds of noise_level_bounds.
+        The lower and upper bounds of 'noise_level'.
         If "fixed", the noise_level parameter is not changed during
         the hyperparameter tunning.
 
@@ -138,68 +140,72 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         eval_gradient: bool, default=False
             If True, the gradient with respect to the log of the
-            kernel hyperparameters is computed.
+            kernel hyperparameters is also returned.
             Only supported if Y=None.
 
         Returns
         -------
         K: ndimarray of shape
-            Evaluated kernel.
+            Kernel.
 
-        K_grad: optional ndimarray of shape (nsamp, nsamp).
-            Gradient of the kernel wrt the hyperparameters.
+        K_grad: ndimarray of shape (nsamples_X, nsamples_X),
+            optional
+            Gradient of the kernel wrt the log of the hyperparameters.
             Only returned if eval_gradient is True.
         """
         self._check_length_scale(X, self.length_scale)
 
-        if Y is None:
-            return self._cov_yy(X, eval_gradient=eval_gradient)
-        else:
-            if eval_gradient:
-                raise ValueError(
-                    "Gradient can only be evaluated when Y is None.")
-            return self._cov_yy(X, Y, eval_gradient=False)
+        return self._cov_yy(X, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
         if Y is None:
-            dists2 = pdist(X / self.length_scale, metric='sqeuclidean')
+            dists2 = pdist(X / self.length_scale,
+                           metric='sqeuclidean')
             K = np.exp(-0.5 * dists2)
             K = squareform(K)
             np.fill_diagonal(K, 1)
             return K
         else:
-            dists2 = cdist(X / self.length_scale, Y  / self.length_scale, metric='sqeuclidean')
+            dists2 = cdist(X / self.length_scale,
+                           Y / self.length_scale,
+                           metric='sqeuclidean')
             K = np.exp(-0.5 * dists2)
             return K
 
     def _cov_yy(self, X, Y=None, eval_gradient=False):
-        # covariance between the locations of the func at X (and Y).
         if Y is None:
+            (nX, ndim) = X.shape
             K = self.constant_value * self._rbf(X)
-            K += self.noise_level * np.eye(_num_samples(X))
+            K += self.noise_level * np.eye(nX)
             if eval_gradient:
-                # -- wrt the constant value -- #
+                # -- wrt the log of the constant value -- #
                 if self.hyperparameter_constant_value.fixed:
-                    K_grad_const = np.empty((_num_samples(X), _num_samples(X), 0))
+                    K_grad_const = np.empty((_num_samples(X),
+                                             _num_samples(X), 0))
                 else:
                     K_grad_const = self.constant_value * self._rbf(X)
                     K_grad_const = K_grad_const[..., np.newaxis]
-                # -- wrt the length scale -- #
+                # -- wrt the log of the length scale -- #
                 if self.hyperparameter_length_scale.fixed:
-                    K_grad_lensc = np.empty((_num_samples(X), _num_samples(X), 0))
+                    K_grad_lensc = np.empty((_num_samples(X),
+                                             _num_samples(X), 0))
                 else:
-                    dists2 = pdist(X / self.length_scale, metric='sqeuclidean')
+                    dists2 = pdist(X / self.length_scale,
+                                   metric='sqeuclidean')
                     dists2 = squareform(dists2)
                     K_grad_lensc = self.constant_value * dists2 * self._rbf(X)
                     K_grad_lensc = K_grad_lensc[..., np.newaxis]
-                # -- wrt the noise level -- #
+                # -- wrt the log of the noise level -- #
                 if self.hyperparameter_noise_level.fixed:
-                    K_grad_noise = np.empty((_num_samples(X), _num_samples(X), 0))
+                    K_grad_noise = np.empty((_num_samples(X),
+                                             _num_samples(X), 0))
                 else:
                     K_grad_noise = self.noise_level * np.eye(_num_samples(X))
                     K_grad_noise = K_grad_noise[..., np.newaxis]
 
-                return K, np.concatenate((K_grad_const, K_grad_lensc, K_grad_noise), axis=-1)
+                return K, np.concatenate((K_grad_const,
+                                          K_grad_lensc,
+                                          K_grad_noise), axis=-1)
             else:
                 return K
         else:
@@ -228,9 +234,10 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     def _check_length_scale(self, X, length_scale):
         if np.ndim(length_scale) > 1:
-            raise ValueError("length_scale cannot be of dimension"
-                             " greater than 1.")
+            raise ValueError(
+                "length_scale cannot be of dimension greater than 1.")
         if np.ndim(length_scale) == 1 and X.shape[1] != length_scale.shape[0]:
-            raise ValueError("anisotropic_length_scale kernel must have the same number of"
-                             " dimensions as data (%d!=%d)"
-                            % (length_scale.shape[0], X.shape[1]))
+            raise ValueError(
+                "anisotropic_length_scale kernel must have the same number of"
+                 " dimensions as data (%d!=%d)"%(length_scale.shape[0],
+                                                 X.shape[1]))

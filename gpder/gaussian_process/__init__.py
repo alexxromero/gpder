@@ -7,11 +7,9 @@ https://papers.nips.cc/paper/2002/file/5b8e4fd39d9786228649a8a8bec4e008-Paper.pd
 """
 
 from . import gaussian_process
-from . import gaussian_process_sk
 from . import deraware_kernel
 from . import kernel
 
 from .gaussian_process import GaussianProcessRegressor
-from .gaussian_process_sk import SKGaussianProcessRegressor
 from .deraware_kernel import GPKernelDerAware
 from .kernel import GPKernel
