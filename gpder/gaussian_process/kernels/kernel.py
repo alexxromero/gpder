@@ -24,7 +24,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     white noise kernel. GPKernel is summarized as :
 
     .. math::
-        k(x, dx) = \\alpha * RBF(X, Y, \\sigma) + \\nu \\delta
+        k(X, Y) = \\alpha * RBF(X, Y, \\sigma) + \\nu \\delta
 
     where :math:`\\alpha` is the magnitude of the constant kernel,
     :math:`\\nu` is the magnitude of the noise level of the white
@@ -45,13 +45,8 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         If "fixed", constant_value parameter is not changed during
         the hyperparameter tunning.
 
-    length_scale: float or ndimarray of shape (n_features,),
-        default=1.0
+    length_scale: float, default=1.0
         Length scale of the RBF kernel.
-        If a float, an isotropic kernel is used.
-        If an array, and anisotropic_length_scale kernel is used
-        where the mag. of each entry in the array defines the
-        length-scale of the respective feature dimension.
 
     length_scale_bounds: "fixed" or pair of floats >= 0,
         default=(1e-5, 1e5)
@@ -102,15 +97,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             self.noise_level_bounds = noise_level_bounds
 
     @property
-    def anisotropic_length_scale(self):
-        return np.iterable(self.length_scale) and len(self.length_scale) > 1
-
-    @property
     def hyperparameter_length_scale(self):
-        if self.anisotropic_length_scale:
-            return Hyperparameter("length_scale", "numeric",
-                                  self.length_scale_bounds,
-                                  len(self.length_scale))
         return Hyperparameter(
             "length_scale", "numeric", self.length_scale_bounds)
 
@@ -145,17 +132,17 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         Returns
         -------
-        K: ndimarray of shape
+        K: array of shape (nsamples_X, nsamples_X)
             Kernel.
 
-        K_grad: ndimarray of shape (nsamples_X, nsamples_X),
+        K_grad: array of shape (nsamples_X, nsamples_X, 3),
             optional
             Gradient of the kernel wrt the log of the hyperparameters.
             Only returned if eval_gradient is True.
         """
         self._check_length_scale(X, self.length_scale)
 
-        return self._cov_yy(X, eval_gradient=eval_gradient)
+        return self._cov_yy(X, Y, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
         if Y is None:
@@ -183,8 +170,8 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                     K_grad_const = np.empty((_num_samples(X),
                                              _num_samples(X), 0))
                 else:
-                    K_grad_const = self.constant_value * self._rbf(X)
-                    K_grad_const = K_grad_const[..., np.newaxis]
+                    K_grad_const = self._rbf(X)[:, :, np.newaxis]
+                    K_grad_const *= self.constant_value
                 # -- wrt the log of the length scale -- #
                 if self.hyperparameter_length_scale.fixed:
                     K_grad_lensc = np.empty((_num_samples(X),
@@ -194,7 +181,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                                    metric='sqeuclidean')
                     dists2 = squareform(dists2)
                     K_grad_lensc = self.constant_value * dists2 * self._rbf(X)
-                    K_grad_lensc = K_grad_lensc[..., np.newaxis]
+                    K_grad_lensc = K_grad_lensc[:, :, np.newaxis]
                 # -- wrt the log of the noise level -- #
                 if self.hyperparameter_noise_level.fixed:
                     K_grad_noise = np.empty((_num_samples(X),
@@ -215,22 +202,13 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
     def __repr__(self):
-        if self.anisotropic_length_scale:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={2:.3g})".format(
-                np.sqrt(self.constant_value),
-                map("{0:.3g}".format, self.length_scale))
-            if self.noisy:
-                desc += " + WhiteKernel(noise_level={0:.3g})".format(
-                    self.noise_level)
-            return desc
-        else:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
-                np.sqrt(self.constant_value),
-                np.ravel(self.length_scale)[0])
-            if self.noisy:
-                desc += " + WhiteKernel(noise_level={0:.3g})".format(
-                    self.noise_level)
-            return desc
+        desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
+            np.sqrt(self.constant_value),
+            np.ravel(self.length_scale)[0])
+        if self.noisy:
+            desc += " + WhiteKernel(noise_level={0:.3g})".format(
+                self.noise_level)
+        return desc
 
     def _check_length_scale(self, X, length_scale):
         if np.ndim(length_scale) > 1:

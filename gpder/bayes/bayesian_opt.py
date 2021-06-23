@@ -4,10 +4,9 @@ from scipy.stats import norm
 import sklearn
 from sklearn.utils.validation import check_random_state
 
-from .gaussian_process import GaussianProcessRegressor
-from .gaussian_process import GPKernel, GPKernelDerAware
+from ..gaussian_process import GaussianProcessRegressor
+from ..gaussian_process.kernels import GPKernel, GPKernelDerAware
 from .bayesian_opt_utils import print_log, print_log_mse_uncer
-from .bayesian_opt_utils import plot_iter
 
 # Functions from: http://krasserm.github.io/2018/03/21/bayesian-optimization/
 # https://github.com/thuijskens/bayesian-optimization/blob/master/python/gp.py
@@ -22,11 +21,11 @@ def expected_improvement(X, y_samples, gp,
 
     Arguments
     ---------
-    X: array of shape (n, d)
-        Points where the EI is computed.
+    X: array of shape (n, 1)
+        Point where the EI is computed.
 
     y_samples: array of shape (ny, 1)
-        Sample target values for the gpr.
+        Previous sample target values.
 
     gpr: GaussianProcessRegressor
         Instance of GaussianProcessRegressor.
@@ -59,11 +58,13 @@ def expected_improvement(X, y_samples, gp,
 
     return ei
 
+
 class BayesianOptimization():
-    """BayesianOptimization of the objective function's nuisance
-    parameters using Gaussian Process Regression (gpr) as the
+    """BayesianOptimization of an objective function's nuisance
+    parameters using Gaussian Process Regression (GPR) as the
     surrogate model. If derivative information of the objective
-    function to optimize is available, it can be used to aid the gpr.
+    function to optimize is available, it can be used to aid
+    in the GPR.
 
     Parameters
     ----------
@@ -76,8 +77,8 @@ class BayesianOptimization():
         Example: {'x': (0, 1), 'y': (-1, 1)}
 
     dfun: callable
-        Function returning the derivative of the objective
-        function with respect to the hyperparameters.
+        Function returning the partiaal derivatives of the
+        objective function with respect to the parameters.
 
     random_state: RandomState instance or None, default=None
         Determines the random number generator used in the GPR
@@ -88,27 +89,19 @@ class BayesianOptimization():
         per iter.
     """
 
-    def __init__(self, fun, param_bounds, dfun=None, random_state=None,
-                 plot_iterations=False,
+    def __init__(self, fun, param_bounds, dfun=None,
+                 random_state=None,
                  verbose=True):
         self.fun = fun
         self.params_bounds = param_bounds
         self.dfun = dfun
         self.random_state = check_random_state(random_state)
-        self.plot_iterations = plot_iterations
         self.verbose = verbose
         self._has_derinfo = False if self.dfun is None else True
         self._params_keys = self._get_param_keys(param_bounds)
         self._params_bounds_vals = self._get_param_vals(param_bounds)
+        self._params_dict = param_bounds
         self._nparams = len(self._params_keys)
-
-        if self._has_derinfo:
-            self._kernel = GPKernelDerAware()
-        else:
-            self._kernel = GPKernel()
-        self._gp = GaussianProcessRegressor(kernel=self._kernel,
-                                            n_restarts_optimizer=10,
-                                            random_state=self.random_state)
 
     def _get_param_keys(self, param_bounds):
         return list(param_bounds.keys())
@@ -116,23 +109,38 @@ class BayesianOptimization():
     def _get_param_vals(self, param_bounds):
         return np.array([param_bounds.get(p) for p in self._params_keys])
 
-    def optimize(self, params_init=None, n_rand=0, n_iters=10,
-                 xi=0.01, maximize=True):
+    def optimize(self,
+                 params_train=None,
+                 nrand_train=0,
+                 minimizer='fmin_l_bfgs_b',
+                 niters=10,
+                 xi=0.01,
+                 nminimizer_restarts=True,
+                 maximize=True):
         """Optimize the objective function.
 
         Parameters
         ----------
-        params_init: ndarray of shape (n, nparams)
-            Locations of the initial points to sample the objective
-            function at. If None, random points are used to sample
-            the objective function and initialize the optimization.
+        params_train: ndarray of shape (n, nparams)
+            Initial training parameters. If None, random parameters
+            are used to initialize the fitting of the GPR.
 
-        n_rand: int, default=0
-            Number of initial random points to sample from the
-            objective function.
+        nrand_train: int, default=0
+            Number of random parameters to use as the initial training
+            parameters for the GPR.
 
-        n_iters: int, default=10
-            Number of iterations to run the search algorithm for.
+        minimizer: 'fmin_l_bfgs_b', or callable, default='fmin_l_bfgs_b'
+            Minimizing function for the neg. acquisition function.
+            If 'fmin_l_bfgs_b', scipy's minimizer function with the
+            fmin_l_bfgs_b method is used.
+            Alternatively, a minimzer can be provided as a callable
+            with the signature:
+                x, fval = minimizer(fun, bounds)
+            See minimizers.py for brute-force and random search
+            minimizer functions.
+
+        niters: int, default=10
+            Number of Bayesian optimization iterations to do.
 
         xi: float, default=0.01
             Exploitation-exploration trade-off parameter.
@@ -140,13 +148,22 @@ class BayesianOptimization():
         maximize: float, default=True
             If true, find the maximum of the objective function.
             Else, find the minimum.
+
+        nminimizer_restarts: int, default=10
+            Number of times to restart the 'minimizer' per Bayesian
+            iteration.
         """
 
-        self.params_init = params_init
-        self.n_rand = n_rand
-        self.n_iters = n_iters
+        self.params_train = params_train
+        self.nrand_train = nrand_train
+        self.minimizer = minimizer
+        self.niters = niters
         self.xi = xi
         self.maximize = maximize
+
+        if (self.params_train is None) and (self.nrand_train==0):
+            raise ValueError(
+                "Please enter either params_train and/or nrand_train > 0.")
 
         if self._has_derinfo:
             param_init, target_init, dtarget_init = \
@@ -156,6 +173,13 @@ class BayesianOptimization():
             self.params = np.vstack((param_init, param_rand))
             self.targets = np.vstack((target_init, target_rand))
             self.dtargets = np.vstack((dtarget_init, dtarget_rand))
+            # setup and fit GP
+            self._kernel = GPKernelDerAware()
+            self._gp = GaussianProcessRegressor(kernel=self._kernel,
+                                                n_restarts_optimizer=10,
+                                                random_state=self.random_state)
+            self._gp.fit(X=self.params, y=self.targets,
+                         dX=self.params, dy=self.dtargets)
         else:
             param_init, target_init = \
                 self._get_initial_training_points(include_ders=False)
@@ -163,6 +187,15 @@ class BayesianOptimization():
                 self._get_random_training_points(include_ders=False)
             self.params = np.vstack((param_init, param_rand))
             self.targets = np.vstack((target_init, target_rand))
+            # setup and fit GP
+            self._kernel = GPKernel()
+            self._gp = GaussianProcessRegressor(kernel=self._kernel,
+                                                n_restarts_optimizer=10,
+                                                random_state=self.random_state)
+            self._gp.fit(X=self.params, y=self.targets)
+
+        self.theta = self._gp.kernel_.theta
+        self._record_init_values()
 
         itsamples = np.shape(self.params)[0]
         if self.verbose:
@@ -174,13 +207,9 @@ class BayesianOptimization():
             opt_val = np.max(self.targets)
         else:
             opt_val = np.min(self.targets)
-        for i in range(n_iters):
+
+        for i in range(niters):
             is_opt = False
-            if self._has_derinfo:
-                self._gp.fit(X=self.params, y=self.targets,
-                             dy=self.dtargets)
-            else:
-                self._gp.fit(X=self.params, y=self.targets)
 
             param_next = self.sample_next_location_by_EI(
                 X_samples=self.params,
@@ -194,6 +223,13 @@ class BayesianOptimization():
             if self._has_derinfo:
                 dtarget_next = self._eval_dfun(param_next)
                 self.dtargets = np.vstack((self.dtargets, dtarget_next))
+
+            if self._has_derinfo:
+                self._gp.fit(X=self.params, y=self.targets,
+                             dX=self.params, dy=self.dtargets)
+            else:
+                self._gp.fit(X=self.params, y=self.targets)
+            self.theta = np.vstack((self.theta, self._gp.kernel_.theta))
 
             itsamples+=1
             if maximize:
@@ -211,36 +247,58 @@ class BayesianOptimization():
                           print_header=False)
 
         if self.maximize:
-            self.target_opt = np.max(self.targets)
-            self.parameter_opt = self.params[np.argmax(self.targets)]
+            self.target_optimal = np.max(self.targets)
+            self.parameter_optimal = self.params[np.argmax(self.targets)]
         else:
-            self.target_opt = np.min(self.targets)
-            self.parameter_opt = self.params[np.argmin(self.targets)]
+            self.target_optimal = np.min(self.targets)
+            self.parameter_optimal = self.params[np.argmin(self.targets)]
+
+        self._record_bayes_values()
+
+    def _record_init_values(self):
+        if self._has_derinfo:
+            self.init_params = self.params
+            self.init_targets = self.targets
+            self.init_dtargets = self.dtargets
+        else:
+            self.init_params = self.params
+            self.init_targets = self.targets
+            self.init_dtargets = []
+        self.init_theta = self.theta
+
+    def _record_bayes_values(self):
+        if self._has_derinfo:
+            self.bayes_params = self.params[len(self.init_params):, :]
+            self.bayes_targets = self.targets[len(self.init_params):, :]
+            self.bayes_dtargets = self.dtargets[len(self.init_params):, :]
+        else:
+            self.bayes_params = self.params[len(self.init_params):, :]
+            self.bayes_targets = self.targets[len(self.init_params):, :]
+            self.bayes_dtargets = []
+        self.bayes_theta = self.theta[1:]
 
     def _eval_fun(self, params):
         targets = []
         for X in params:
-            X_dict = dict(zip(self._params_keys,
-                              np.reshape(X, (-1, self._nparams))))
+            X_dict = dict(zip(self._params_keys, X))
             targets.append(self.fun(**X_dict))
         return np.asarray(targets).reshape(-1, 1)
 
     def _eval_dfun(self, params):
         targets = []
         for X in params:
-            X_dict = dict(zip(self._params_keys,
-                              np.reshape(X, (-1, self._nparams))))
+            X_dict = dict(zip(self._params_keys, X))
             targets.append(self.dfun(**X_dict))
         return np.asarray(targets).reshape(-1, self._nparams)
 
     def _get_initial_training_points(self, include_ders=False):
-        if self.params_init is not None:
-            if self.params_init.dim < 1:
+        if self.params_train is not None:
+            if self.params_train.dim < 1:
                 raise ValueError(
-                    "Expected 2D array for params_init, got 1D array instead. "
+                    "Expected 2D array for params_train, got 1D array instead. "
                     "Reshape using array.reshape(-1, 1) if your data has only "
                     "one pameter.")
-            params = np.copy(self.params_init)
+            params = np.copy(self.params_train)
             targets = self._eval_fun(params)
             if include_ders:
                 dtargets = self._eval_dfun(params)
@@ -256,10 +314,10 @@ class BayesianOptimization():
             return params, targets
 
     def _get_random_training_points(self, include_ders):
-        if self.n_rand > 0:
+        if self.nrand_train > 0:
             params = self.random_state.uniform(self._params_bounds_vals[:, 0],
                                                self._params_bounds_vals[:, 1],
-                                               size=(self.n_rand,self._nparams))
+                                               size=(self.nrand_train,self._nparams))
             targets = self._eval_fun(params)
             if include_ders:
                 dtargets = self._eval_dfun(params)
@@ -275,8 +333,8 @@ class BayesianOptimization():
             return params, targets
 
     def _get_optimal_val(self):
-        param_dic = dict(zip(self._params_keys, self.parameter_opt.T))
-        desc = {'target': self.target_opt,
+        param_dic = dict(zip(self._params_keys, self.parameter_optimal.T))
+        desc = {'target': self.target_optimal,
                 'parameters': param_dic}
         return desc
 
@@ -310,26 +368,29 @@ class BayesianOptimization():
                                    params_bounds,
                                    minimizer='fmin_l_bfgs_b',
                                    n_restarts=25):
-        """Location of the proposed next sampling according to
+        """Location of the next proposed sample according to
         its Expected improvement (ei).
 
         Args:
             X_samples: array of shape (n_samples, d)
-                Sample location points for the gp.
+                Previous parameters.
             target_samples: array of shape (n_samples, 1)
-                Sample target values for the gp.
+                Previous target values.
             gp: GaussianProcessRegressor
-                Instance of GaussianProcessRegressor fitted to the samples.
+                Instance of GaussianProcessRegressor fitted to
+                (X_samples, target_samples).
             params_bounds: dictionary
                 Dictionary with the lower and upper bounds of the
                 parameters.
             minimizer: 'fmin_l_bfgs_b' or 'brute'
-                Minimization algorithm.
+                Minimization function.
             n_restarts: int
-                Number of times to restart the minimization algo.
+                Number of times to restart the minimizer.
 
         Returns:
             Location of the acquisition function maximum.
+            This location is taken to be the next proposed
+            sampling point.
         """
         def neg_acq(X):
             return -expected_improvement(X=X.reshape(-1, self._nparams),
@@ -338,45 +399,27 @@ class BayesianOptimization():
                                          xi=self.xi,
                                          maximize=self.maximize)
         best_x = None
-        min_val = 1
+        min_val = 1e5
         for i in range(n_restarts):
-            x0 = self.random_state.uniform(self._params_bounds_vals[:, 0],
-                                           self._params_bounds_vals[:, 1],
-                                           size=(1, self._nparams))
             if minimizer=='fmin_l_bfgs_b':
+                x0 = self.random_state.uniform(self._params_bounds_vals[:, 0],
+                                               self._params_bounds_vals[:, 1],
+                                               size=(1, self._nparams))
                 res = scipy.optimize.minimize(
                         fun=neg_acq,
                         x0=x0,
                         method='L-BFGS-B',
                         bounds=self._params_bounds_vals)
-                if res.fun[0] < min_val:
-                    min_val = res.fun[0]
-                    best_x = res.x
-            elif minimizer=='brute':
-                x0, fval, grid, _ = scipy.optimize.brute(
-                                        func=neg_acq,
-                                        ranges=self._params_bounds_vals,
-                                        full_output=True,
-                                        finish=None)
-                if fval < min_val:
-                    min_val = fval
-                    best_x = x0
+                fval = res.fun[0]
+                x = res.x
+            elif callable(self.minimizer):
+                x, fval = self.minimizer(fun=neg_acq,
+                                         bounds=self._params_bounds_vals)
             else:
-                raise ValueError("minimizer must be 'L-BFGS-B' or 'brute'.")
+                raise ValueError("Unknown minimizer %s." % self.minimizer)
 
-        best_x = np.array(best_x).reshape(1, self._nparams)
+            if fval < min_val:
+                min_val = fval
+                best_x = x
 
-        if self.plot_iterations:
-            if self._nparams > 1:
-                raise ValueError("plot_iterations is only supported for 1D.")
-            X_star = np.linspace(self._params_bounds_vals[0][0],
-                                 self._params_bounds_vals[0][1],
-                                 num=100)
-            mu, std = gp.predict(X=X_star, return_std=True)
-            y_true = self.fun(X_star)
-            plot_iter(X_train=X_samples, y_train=target_samples,
-                      X_star=X_star, mu_star=mu.ravel(), std_star=std,
-                      y_true=y_true,
-                      X_next=best_x)
-
-        return best_x
+        return np.array(best_x).reshape(1, self._nparams)

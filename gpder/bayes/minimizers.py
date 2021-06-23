@@ -4,7 +4,9 @@ from scipy._lib._util import MapWrapper
 import sklearn
 from sklearn.utils.validation import check_random_state
 
-def brute_minimizer(fun, N, bounds, args=(), workers=1):
+__all__ = ['brute_minimizer', 'random_minimizer', 'hybrid_minimizer']
+
+def brute_minimizer(fun, bounds, N=10, args=(), workers=1):
     """Grid search minimizer.
 
     Arguments
@@ -36,7 +38,7 @@ def brute_minimizer(fun, N, bounds, args=(), workers=1):
     lbounds = list(bounds)
     for i in range(nparams):
         step = (lbounds[i][1] - lbounds[i][0]) / N
-        lbounds[i] = slice(lbounds[i][0], lbounds[i][1], step)
+        lbounds[i] = slice(lbounds[i][0], lbounds[i][1]+step, step)
 
     if (nparams == 1):
         lbounds = lbounds[0]
@@ -81,7 +83,7 @@ def brute_minimizer(fun, N, bounds, args=(), workers=1):
     return xmin, fval_min
 
 
-def random_minimizer(fun, N, bounds, args=(), random_state=None, workers=1):
+def random_minimizer(fun, bounds, N=10, args=(), random_state=None, workers=1):
     """Random search minimizer.
 
     Arguments
@@ -163,7 +165,7 @@ def random_minimizer(fun, N, bounds, args=(), random_state=None, workers=1):
     return xmin, fval_min
 
 
-def hybrid_minimizer(fun, N_rand, N_brute, bounds, args=(),
+def hybrid_minimizer(fun, bounds, N_rand=10, N_brute=10, args=(),
                      random_state=None, workers=1):
     """Hybrid minimizer, starting with a random search to find a
     minimum, and polishing with a grid search around the minimum.
@@ -223,9 +225,6 @@ def hybrid_minimizer(fun, N_rand, N_brute, bounds, args=(),
 
 
 class _Fun_Wrapper(object):
-    """
-    Object to wrap user cost function for optimize.brute, allowing picklability
-    """
 
     def __init__(self, f, args):
         self.f = f

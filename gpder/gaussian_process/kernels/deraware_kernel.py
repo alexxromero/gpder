@@ -29,7 +29,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     GPKernelDerAware is summarized as :
 
     .. math::
-        k(x, dx) = \\alpha * RBF(x, dx, l) + \\sigma \\delta
+        k(X, dX) = \\alpha * RBF(X, dX) + \\sigma \\delta
 
     where :math:`\\alpha` is the magnitude of the constant kernel,
     :math:`\\sigma` is the magnitude of the noise level of the white
@@ -50,13 +50,8 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         If "fixed", constant_value parameter is not changed during
         the hyperparameter tunning.
 
-    length_scale: float or ndimarray of shape (n_features,),
-                  default=1.0
+    length_scale: float, default=1.0
         Length scale of the modified RBF kernel.
-        If a float, an isotropic kernel is used.
-        If an array, and anisotropic_length_scale kernel is used
-        where the mag. of each entry in the array defines the
-        length-scale of the respective feature dimension.
 
     length_scale_bounds: "fixed" or pair of floats >= 0,
         default=(1e-5, 1e5)
@@ -126,15 +121,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             self.noise_level_dX_bounds = noise_level_dX_bounds
 
     @property
-    def anisotropic_length_scale(self):
-        return np.iterable(self.length_scale) and len(self.length_scale) > 1
-
-    @property
     def hyperparameter_length_scale(self):
-        if self.anisotropic_length_scale:
-            return Hyperparameter("length_scale", "numeric",
-                                  self.length_scale_bounds,
-                                  len(self.length_scale))
         return Hyperparameter(
             "length_scale", "numeric", self.length_scale_bounds)
 
@@ -153,7 +140,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         return Hyperparameter(
             "noise_level_dX", "numeric", self.noise_level_dX_bounds)
 
-    def __call__(self, X, dX, X_pred=None,
+    def __call__(self, X, dX=None, X_pred=None,
                  eval_gradient=False):
         """Return the kernel and optionally its gradient.
 
@@ -165,6 +152,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         dX: ndarray of shape (nsamples_dX, ndimims_dX),
             default=None
             Coordinates of the derivative observations.
+            If None, dX is assumed to be equal to X.
 
         X_pred: ndarray of shape (nsamples_X_pred, ndimims_X),
             default=None
@@ -178,11 +166,12 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         Returns
         -------
-        K: ndimarray of shape
+        K: array of shape
+           nsamples_X+nsamples_dX, nsamples_X+nsamples_dX), optional
             Kernel.
 
-        K_grad: ndimarray of shape (nsamples_X+nsamples_dX,
-            nsamples_X+nsamples_dX), optional
+        K_grad: ndimarray of shape
+            (nsamples_X+nsamples_dX, nsamples_X+nsamples_dX, 4), optional
             Gradient of the kernel wrt the log of the hyperparameters.
             Only returned if eval_gradient is True.
         """
@@ -195,7 +184,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return np.block([self._cov_yy(X=X_pred, Y=X),
                              self._cov_wy(X=X_pred, dX=dX).T])
 
-        return self._cov_hybrid(X, dX, eval_gradient=eval_gradient)
+        return self._kernel_hybrid(X, dX, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
         if Y is None:
@@ -222,14 +211,15 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 # -- wrt the log of the constant value -- #
                 if not self.hyperparameter_constant_value.fixed:
-                    K_grad_const[:, :, 0] = self.constant_value * self._rbf(X)
+                    K_grad_const = self._rbf(X)[:, :, np.newaxis]
+                    K_grad_const *= self.constant_value
                 # -- wrt the log of the length scale -- #
                 if not self.hyperparameter_length_scale.fixed:
                     dists2 = pdist(X / self.length_scale,
                                    metric='sqeuclidean')
                     dists2 = squareform(dists2)
-                    K_grad_lensc[:, :, 0] = dists2 * self._rbf(X)
-                    K_grad_lensc[:, :, 0] *= self.constant_value
+                    grad = self.constant_value * dists2 * self._rbf(X)
+                    K_grad_lensc = grad[:, :, np.newaxis]
                 # -- wrt the log of the noise level of X -- #
                 if not self.hyperparameter_noise_level_X.fixed:
                     noise_terms = self.noise_level_X * np.eye(nX)
@@ -247,6 +237,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             K = self.constant_value * self._rbf(X, Y)
             return K
 
+
     def _cov_ww(self, dX, dY=None, eval_gradient=False):
         if dY is None:
             dY = dX
@@ -262,28 +253,30 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         for i in range(ndim):
             for j in range(ndim):
                 dist_i = dX[:, i].reshape(-1, 1) - dY[:, i].reshape(-1, 1).T
-                dist_i_scl = dist_i / self.length_scale**2  # scaled
                 dist_j = dX[:, j].reshape(-1, 1) - dY[:, j].reshape(-1, 1).T
-                dist_j_scl = dist_j / self.length_scale**2  # scaled
-                coeff = (i==j) / self.length_scale**2
-                coeff -= (dist_i_scl * dist_j_scl)
+                dist_i_scl = dist_i * 1./self.length_scale**2  # scaled
+                dist_j_scl = dist_j * 1./self.length_scale**2  # scaled
+                dij = (i==j) / self.length_scale**2
+                coeff = dij - (dist_i_scl * dist_j_scl)
                 Kij = self.constant_value * coeff * self._rbf(dX, dY)
-                K[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = Kij
+                K[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] = Kij
                 if eval_gradient:
                     # -- wrt the log of the constant value -- #
                     if not self.hyperparameter_constant_value.fixed:
-                        K_grad_const[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX, 0] = \
-                            Kij
+                        K_grad_const[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = \
+                            Kij[:, :, np.newaxis]
                     # -- wrt the log of the length scale -- #
                     if not self.hyperparameter_length_scale.fixed:
                         dists2 = pdist(dX / self.length_scale,
                                        metric='sqeuclidean')
                         dists2 = squareform(dists2)
                         d1 = coeff * dists2 * self._rbf(dX)
+                        d1 = d1[:, :, np.newaxis]
                         dcoeff = -2*(i==j) / self.length_scale**2
                         dcoeff += 4*(dist_i_scl * dist_j_scl)
                         d2 = dcoeff * self._rbf(dX)
-                        K_grad_lensc[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX, 0] = \
+                        d2 = d2[:, :, np.newaxis]
+                        K_grad_lensc[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX]=\
                             self.constant_value * (d1 + d2)
         noise_terms = self.noise_level_dX * np.eye(ndX*ndim, ndY*ndim)
         K += noise_terms
@@ -297,6 +290,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                                       K_grad_noise_dX), axis=-1)
         else:
             return K
+
 
     def _cov_wy(self, X, dX, eval_gradient=False):
         (nX, ndim) = X.shape
@@ -312,18 +306,19 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 # -- wrt the log of the constant value -- #
                 if not self.hyperparameter_constant_value.fixed:
-                    K_grad_const[i*ndX:(i+1)*ndX, :, 0] = Kij
+                    K_grad_const[i*ndX:(i+1)*ndX, :] = Kij[:, :, np.newaxis]
                 # -- wrt the log of the length scale -- #
                 if not self.hyperparameter_length_scale.fixed:
                     dists2 = cdist(dX / self.length_scale,
                                    X / self.length_scale,
                                    metric='sqeuclidean')
                     d1 = -coeff * dists2 * self._rbf(dX, X)
+                    d1 = d1[:, :, np.newaxis]
                     dcoeff = 2*dist / self.length_scale**2
                     d2 = dcoeff * self._rbf(dX, X)
-                    K_grad_lensc[i*ndX:(i+1)*ndX, :, 0] = \
+                    d2 = d2[:, :, np.newaxis]
+                    K_grad_lensc[i*ndX:(i+1)*ndX, :] = \
                         self.constant_value * (d1 + d2)
-
         if eval_gradient:
             return K, np.concatenate((K_grad_const,
                                       K_grad_lensc,
@@ -332,7 +327,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         else:
             return K
 
-    def _cov_hybrid(self, X, dX,
+    def _kernel_hybrid(self, X, dX,
                        eval_gradient=False):
         if eval_gradient:
             Kww, Kww_grad = self._cov_ww(dX, eval_gradient=True)
@@ -353,37 +348,21 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
     def __repr__(self):
-        if self.anisotropic_length_scale:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={2:.3g})".format(
-                np.sqrt(self.constant_value),
-                map("{0:.3g}".format, self.length_scale))
-            if self.noisy_X:
-                desc += " + WhiteKernel_X(noise_level={0:.3g})".format(
-                    self.noise_level_X)
-            if self.noisy_dX:
-                desc += " + WhiteKernel_dX(noise_level={0:.3g})".format(
-                    self.noise_level_dX)
-            return desc
-        else:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
-                np.sqrt(self.constant_value),
-                np.ravel(self.length_scale)[0])
-            if self.noisy_X:
-                desc += " + WhiteKernel_X(noise_level={0:.3g})".format(
-                    self.noise_level_X)
-            if self.noisy_dX:
-                desc += " + WhiteKernel_dX(noise_level={0:.3g})".format(
-                    self.noise_level_dX)
-            return desc
+        desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
+            np.sqrt(self.constant_value),
+            np.ravel(self.length_scale)[0])
+        if self.noisy_X:
+            desc += " + WhiteKernel_X(noise_level={0:.3g})".format(
+                self.noise_level_X)
+        if self.noisy_dX:
+            desc += " + WhiteKernel_dX(noise_level={0:.3g})".format(
+                self.noise_level_dX)
+        return desc
 
     def _check_length_scale(self, X, length_scale):
         if np.ndim(length_scale) > 1:
             raise ValueError("length_scale cannot be of dimension"
                              " greater than 1.")
-        if np.ndim(length_scale) == 1 and X.shape[1] != length_scale.shape[0]:
-            raise ValueError("anisotropic_length_scale kernel must have the "
-                             "same number of dimensions as data (%d!=%d)"
-                            % (length_scale.shape[0], X.shape[1]))
 
     def _initialize_gradients(self, kernel_dims):
         # -- wrt the log of the constant value -- #

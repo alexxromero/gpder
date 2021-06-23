@@ -12,36 +12,35 @@ from sklearn.utils.validation import check_random_state
 from scipy.linalg import cholesky, cho_solve, solve_triangular
 from scipy.optimize import minimize
 
-from .deraware_kernel import GPKernelDerAware
-from .kernel import GPKernel
-from .utils import _atleast2d
+from .kernels import GPKernel, GPKernelDerAware
+from .kernels.utils import _atleast2d
 
 __all__ = ['GaussianProcessRegressor']
 
 class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     """Gaussian process regressor (GPR) w/derivative observations.
 
-    The GPR implementation is based on scikit-learn
+    GaussianProcessRegressor is based on scikit-learn
     GaussianProcessRegressor and Algorithm 2.1 of Gaussian Processes
     for Machine Learning (GPML) by Rasmussen and Williams [1].
 
     The modification of the GPR to include derivative observations is
     based on the use of the hybrid kernel DerAwareKernel, which
-    combines the covariances of function and derivative observations,
-    as described in [2] and [3].
+    combines the covariances of the function and derivative
+    observations, as described in [2] and [3].
 
     Parameters
     ----------
     kernel: kernel instance, default=None
         The kernel used in the GPR.
         GPKernel is recommended for regular GPR.
-        GPKernelDerAware is recommended for GPR with derivative info.
-        The hyperparameters of the kernel (theta) are optimized during
-        fitting unless the bounds are marked as "fixed".
-        The log of the kernel's hyperparameters are stored in the
+        GPKernelDerAware is recommended for derivative-enhanced GPR.
+        The hyperparameters of the kernel (theta) are optimized
+        during fitting unless the bounds are marked as "fixed".
+        The log of the kernel's hyperparameters is stored in the
         vector 'theta'.
 
-    alpha: float or ndarray of shape (n_samples,), default=1e-6
+    alpha: float or array of shape (n_samples,), default=1e-6
         Value added to the diagonal of the kernel matrix during
         fitting to prevent numerical issues by ensuring that the
         matrtix is positive definitte.
@@ -83,16 +82,16 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     kernel_: kernel instance
         The kernel used in the GPR.
 
-    X_train_: ndarray of shape (nsamples, nfeatures)
+    X_train_: array of shape (nsamples, nfeatures)
         Coordinates of the training observation points.
 
-    y_train_: ndarray of shape (nsamples,)
+    y_train_: array of shape (nsamples,)
         Target values observed at 'X_train_'.
 
-    dX_train_: ndarray of shape (dnsamples, nfeatures), optional
+    dX_train_: array of shape (dnsamples, nfeatures), optional
         Coordinates of the training derivative observation points.
 
-    dy_train_: ndarray of shape (dnsamples, ndfeatures), optional
+    dy_train_: array of shape (dnsamples, ndfeatures), optional
         Partial derivatives of the target values wrt to the
         hyperparameters, observed at 'dX_train_'.
 
@@ -102,10 +101,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     log_marginal_likelihood_value_: float
         Log marginal likelihood of the hyperparameters.
 
-    L_chol_: ndarray of shape (nsamples, nsamples)
+    L_chol_: array of shape (nsamples, nsamples)
         Lower-triangular Cholesky decomposition of the kernel.
 
-    alpha_chol_: ndarray of shape (nsamples,)
+    alpha_chol_: array of shape (nsamples,)
         Dual coefficients of the training samples in the kernel space.
 
     References
@@ -143,17 +142,17 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X_train_: ndarray of shape (nsamples, nfeatures)
+        X_train_: array of shape (nsamples, nfeatures)
             Coordinates of the training observation points.
 
-        y_train_: ndarray of shape (nsamples,)
+        y_train_: array of shape (nsamples,)
             Target values observed at 'X_train_'.
 
-        dX_train_: ndarray of shape (dnsamples, nfeatures),
+        dX_train_: array of shape (dnsamples, nfeatures),
             default=None
             Coordinates of the training derivative observation points.
 
-        dy_train_: ndarray of shape (dnsamples, ndfeatures),
+        dy_train_: array of shape (dnsamples, ndfeatures),
             default=None
             Partial derivatives of the target values wrt to the
             hyperparameters, observed at 'dX_train_'.
@@ -176,8 +175,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             dX = _atleast2d(dX)
             dy = _atleast2d(dy)
             dX, dy = self._validate_data(dX, dy,
-                                        multi_output=True, y_numeric=True,
-                                        ensure_2d=True, dtype="numeric")
+                                         multi_output=True, y_numeric=True,
+                                         ensure_2d=True, dtype="numeric")
             self.dX_train_ = np.copy(dX) if self.copy_data else dX
             self.dy_train_ = np.copy(dy) if self.copy_data else dy
             self._dy_train_flat = np.zeros((dy.shape[0] * dy.shape[1],))
@@ -423,7 +422,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "for trained GP models.")
 
         # Predict based on the trained kernel
-        kernel_post = self.kernel_._cov_ww(dX_star, self.dX_train_)
+        kernel_post = self.kernel_._cov_ww(dX=dX_star, dY=self.dX_train_)
 
         dy_mean = kernel_post.dot(self._alpha_chol_der_)
 
@@ -531,7 +530,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         log_likelihood: float
             Log-marginal likelihood of theta.
 
-        log_likelihood_gradient: ndarray of shape (n_kernel_params,),
+        log_likelihood_gradient: array of shape (n_kernel_params,),
             optional
             Gradient of the lml. Only evaluated and returned if
             eval_gradient is true.
@@ -550,13 +549,13 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         if eval_gradient:
             if self.has_derinfo_:
-                K, K_gradient = kernel(self.X_train_, dX=self.X_train_,
+                K, K_gradient = kernel(self.X_train_, dX=self.dX_train_,
                                        eval_gradient=True)
             else:
                 K, K_gradient = kernel(self.X_train_, eval_gradient=True)
         else:
             if self.has_derinfo_:
-                K = kernel(self.X_train_, dX=self.X_train_,
+                K = kernel(X=self.X_train_, dX=self.dX_train_,
                            eval_gradient=False)
             else:
                 K = kernel(self.X_train_, eval_gradient=False)
