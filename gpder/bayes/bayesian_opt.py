@@ -16,15 +16,14 @@ __all__ = ['BayesianOptimization']
 def expected_improvement(X, y_samples, gp,
                          xi=0.01,
                          maximize=True):
-    """Expected improvement (EI) at X according to the
-    GaussianProcessRegressor (gp) fit to X_samples and y_samples.
+    """Expected improvement (EI) at X.
 
     Arguments
     ---------
-    X: array of shape (n, 1)
+    X: array of shape (1, nparams)
         Point where the EI is computed.
 
-    y_samples: array of shape (ny, 1)
+    y_samples: array of shape (n, 1)
         Previous sample target values.
 
     gpr: GaussianProcessRegressor
@@ -77,7 +76,7 @@ class BayesianOptimization():
         Example: {'x': (0, 1), 'y': (-1, 1)}
 
     dfun: callable
-        Function returning the partiaal derivatives of the
+        Function returning the partial derivatives of the
         objective function with respect to the parameters.
 
     random_state: RandomState instance or None, default=None
@@ -115,8 +114,10 @@ class BayesianOptimization():
                  minimizer='fmin_l_bfgs_b',
                  niters=10,
                  xi=0.01,
-                 nminimizer_restarts=True,
-                 maximize=True):
+                 minimizer_restarts=10,
+                 gp_optimizer_restarts=10,
+                 maximize=True,
+                 workers=1):
         """Optimize the objective function.
 
         Parameters
@@ -136,8 +137,8 @@ class BayesianOptimization():
             Alternatively, a minimzer can be provided as a callable
             with the signature:
                 x, fval = minimizer(fun, bounds)
-            See minimizers.py for brute-force and random search
-            minimizer functions.
+            See minimizers.py for brute-force, random search,
+            and hybrid search minimizer functions.
 
         niters: int, default=10
             Number of Bayesian optimization iterations to do.
@@ -149,9 +150,13 @@ class BayesianOptimization():
             If true, find the maximum of the objective function.
             Else, find the minimum.
 
-        nminimizer_restarts: int, default=10
+        minimizer_restarts: int, default=10
             Number of times to restart the 'minimizer' per Bayesian
             iteration.
+
+        gp_optimizer_restarts: int, default=10
+            Number of times to restart the optimizer of the GP's
+            hyperparameters.
         """
 
         self.params_train = params_train
@@ -160,6 +165,8 @@ class BayesianOptimization():
         self.niters = niters
         self.xi = xi
         self.maximize = maximize
+        self.minimizer_restarts = minimizer_restarts
+        self.gp_restarts = gp_optimizer_restarts
 
         if (self.params_train is None) and (self.nrand_train==0):
             raise ValueError(
@@ -175,9 +182,9 @@ class BayesianOptimization():
             self.dtargets = np.vstack((dtarget_init, dtarget_rand))
             # setup and fit GP
             self._kernel = GPKernelDerAware()
-            self._gp = GaussianProcessRegressor(kernel=self._kernel,
-                                                n_restarts_optimizer=10,
-                                                random_state=self.random_state)
+            self._gp = GaussianProcessRegressor(
+                kernel=self._kernel, n_restarts_optimizer=self.gp_restarts,
+                random_state=self.random_state)
             self._gp.fit(X=self.params, y=self.targets,
                          dX=self.params, dy=self.dtargets)
         else:
@@ -189,11 +196,13 @@ class BayesianOptimization():
             self.targets = np.vstack((target_init, target_rand))
             # setup and fit GP
             self._kernel = GPKernel()
-            self._gp = GaussianProcessRegressor(kernel=self._kernel,
-                                                n_restarts_optimizer=10,
-                                                random_state=self.random_state)
+            self._gp = GaussianProcessRegressor(
+                kernel=self._kernel, n_restarts_optimizer=self.gp_restarts,
+                random_state=self.random_state)
             self._gp.fit(X=self.params, y=self.targets)
 
+        # save kernel's hyperparameters at each stage
+        # to see the evolution of the GP
         self.theta = self._gp.kernel_.theta
         self._record_init_values()
 

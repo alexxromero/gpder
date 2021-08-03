@@ -207,22 +207,28 @@ def hybrid_minimizer(fun, bounds, N_rand=10, N_brute=10, args=(),
                                       args=args,
                                       random_state=random_state,
                                       workers=workers)
-    # grid search centered on xmin
-    nparams = len(bounds)
-    bounds = np.array(bounds)
-    dcell = np.array([(bounds[i][1] - bounds[i][0]) for i in range(nparams)],
-                     dtype=float)
-    dcell /= (N_rand + 1)
-    brute_low = np.max((xmin - dcell / 2.0, bounds[:, 0]), axis=0)
-    brute_high = np.min((xmin + dcell / 2.0, bounds[:, 1]), axis=0)
-    brute_bounds = list(zip(brute_low, brute_high))
-    xmin, fval_min = brute_minimizer(fun=fun, N=N_brute,
-                                     bounds=brute_bounds,
-                                     args=args,
-                                     workers=workers)
 
+    if N_brute > 0:
+        # grid search centered on xmin
+        nparams = len(bounds)
+        bounds = np.array(bounds)
+        dcell = np.array([(bounds[i][1] - bounds[i][0]) for i in range(nparams)],
+                         dtype=float)
+        dcell /= (N_rand + 1)
+        brute_low = np.max((xmin - dcell / 2.0, bounds[:, 0]), axis=0)
+        brute_high = np.min((xmin + dcell / 2.0, bounds[:, 1]), axis=0)
+        brute_bounds = list(zip(brute_low, brute_high))
+        brute_bounds = [x for x in brute_bounds if \
+            within_bounds(x, bounds)]
+        xmin, fval_min = brute_minimizer(fun=fun, N=N_brute,
+                                         bounds=brute_bounds,
+                                         args=args,
+                                         workers=workers)
     return xmin, fval_min
 
+def within_bounds(x, bounds):
+    x = np.asarray(x)
+    return np.all(x >= bounds[:,0]) and np.all(x <= bounds[:, 1])
 
 class _Fun_Wrapper(object):
 

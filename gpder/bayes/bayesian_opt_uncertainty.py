@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 import scipy
 from scipy.stats import norm
 from scipy import optimize
@@ -6,6 +7,7 @@ from scipy.spatial.distance import cdist
 import sklearn
 from sklearn.utils.validation import check_random_state
 from sklearn.metrics import mean_squared_error
+from sklearn.exceptions import ConvergenceWarning
 from copy import deepcopy
 from multiprocessing import Pool
 
@@ -22,13 +24,16 @@ __all__ = ['UncertaintyOptimization']
 
 class UncertaintyOptimization():
     """UncertaintyOptimization minimizes the uncertainty of the
-    objective function using a Bayesian optimization routine with
+    objective function by using a Bayesian optimization routine with
     Gaussian Process Regression (GPR) as the surrogate model.
     If derivative information of the objective function is available,
     it is used to aid the gpr.
 
     Parameters
     ----------
+    GaussianProcessRegressor: GaussianProcessRegressor
+        Instance of GaussianProcessRegressor.
+
     fun: callable
         Objective function.
 
@@ -37,9 +42,10 @@ class UncertaintyOptimization():
         tuple with their correspondent bounds as the values.
         Example: {'x': (0, 1), 'y': (-1, 1)}
 
-    dfun: callable
-        Function returning the derivative of the objective
-        function with respect to the hyperparameters.
+    dfun: callable, default=None
+        Function returning the partial derivatives of the
+        objective function with respect to the parameters.
+        Optional.
 
     random_state: RandomState instance or None, default=None
         Determines the random number generator used in the GPR
@@ -50,12 +56,19 @@ class UncertaintyOptimization():
         per iter.
     """
 
-    def __init__(self, fun, param_bounds, dfun=None,
+    def __init__(self,
+                 GaussianProcessRegressor,
+                 param_bounds,
+                 fun,
+                 dfun=None,
                  random_state=None,
+                 ignore_convergence_warnings=False,
                  verbose=True):
-        self.fun = fun
+        self.gp = GaussianProcessRegressor
         self.params_bounds = param_bounds
+        self.fun = fun
         self.dfun = dfun
+        self.ignore_convergence_warnings = ignore_convergence_warnings
         self.random_state = check_random_state(random_state)
         self.verbose = verbose
         self._has_derinfo = False if self.dfun is None else True
@@ -73,12 +86,10 @@ class UncertaintyOptimization():
     def minimize_uncertainty(self,
                              params_train=None,
                              nrand_train=0,
-                             params_val=None,
+                             params_test=None,
                              minimizer='fmin_l_bfgs_b',
-                             gamma=0.01,
                              niters=10,
-                             nminimizer_restarts=10,
-                             workers=1):
+                             minimizer_restarts=10):
         """Minimizes the uncertainty of the GPR model.
 
         Parameters
@@ -91,8 +102,8 @@ class UncertaintyOptimization():
             Number of random parameters to use as the initial training
             parameters for the GPR.
 
-        params_val: ndarray of shape (nts, nparams), optional
-            Validation parameters.
+        params_test: ndarray of shape (nval, nparams), optional
+            test parameters.
 
         minimizer: 'fmin_l_bfgs_b', or callable, default='fmin_l_bfgs_b'
             Minimizing function for the neg. acquisition function.
@@ -101,29 +112,23 @@ class UncertaintyOptimization():
             Alternatively, a minimzer can be provided as a callable
             with the signature:
                 x, fval = minimizer(fun, bounds)
-            See minimizers.py for brute-force and random search
-            minimizer functions.
-
-        gamma: float > 0
-            Weight of the proximity penalty. If 0, there is no
-            penalty for sampling next/on a previously smapled parameter.
+            See minimizers.py for brute-force, random search,
+            and hybrid search minimizer functions.
 
         niters: int, default=10
             Number of Bayesian optimization iterations to do.
 
-        nminimizer_restarts: int, default=10
+        minimizer_restarts: int, default=10
             Number of times to restart the 'minimizer' per Bayesian
             iteration.
         """
 
         self.params_train = params_train
         self.nrand_train = nrand_train
-        self.params_val = params_val
+        self.params_test = params_test
         self.minimizer = minimizer
-        self.gamma = gamma
         self.niters = niters
-        self.nminimizer_restarts = nminimizer_restarts
-        self.workers = workers
+        self.minimizer_restarts = minimizer_restarts
 
         if (self.params_train is None) and (self.nrand_train==0):
             raise ValueError(
@@ -138,13 +143,9 @@ class UncertaintyOptimization():
             self.params = np.vstack((param_init, param_rand))
             self.targets = np.vstack((target_init, target_rand))
             self.dtargets = np.vstack((dtarget_init, dtarget_rand))
-            # setup and fit GP
-            self._kernel = GPKernelDerAware()
-            self._gp = GaussianProcessRegressor(kernel=self._kernel,
-                                                n_restarts_optimizer=10,
-                                                random_state=self.random_state)
-            self._gp.fit(X=self.params, y=self.targets,
-                         dX=self.params, dy=self.dtargets)
+            self.gp.fit(X=self.params, y=self.targets,
+                        dX=self.params, dy=self.dtargets)
+            uncert_train = np.trace(self.gp.kernel_._cov_yy(self.params))
         else:
             # get initial trainig data
             param_init, target_init = \
@@ -153,47 +154,43 @@ class UncertaintyOptimization():
                 self._get_random_training_points(include_ders=False)
             self.params = np.vstack((param_init, param_rand))
             self.targets = np.vstack((target_init, target_rand))
-            # setup and fit GP
-            self._kernel = GPKernel()
-            self._gp = GaussianProcessRegressor(kernel=self._kernel,
-                                                n_restarts_optimizer=10,
-                                                random_state=self.random_state)
-            self._gp.fit(X=self.params, y=self.targets)
+            self.gp.fit(X=self.params, y=self.targets)
+            uncert_train = np.trace(self.gp.kernel_(self.params))
 
-        itsamples = np.shape(self.params)[0]
+        # save kernel's uncertainty and hyperparameters at each stage
+        # to see the evolution of the GP
+        self.uncert_train = uncert_train
+        self.theta = self.gp.kernel_.theta
 
-        # calculate the covariance of the initial parameters
-        # mu, cov = self._gp.predict(X=self.params, return_cov=True)
-        cov = self._gp.kernel_(self.params, self.params)
-        uncert = np.trace(cov)
-        self.uncert = uncert
-        # also save kernel's parameters at each stage to see the
-        # evolution of the GP
-        self.theta = self._gp.kernel_.theta
-
-        # if validation data is given, calculate the MSE
-        if len(self.params_val) > 0:
-            self.params_val, self.targets_val = self._get_validation_points()
-            mu_val, cov_val = self._gp.predict(X=self.params_val,
-                                               return_cov=True)
-            mse_val = mean_squared_error(self.targets_val, mu_val)
-            mse_val = mse_val
-            uncert_val = np.trace(cov_val)
-            self.mse_val = mse_val
-            self.uncert_val = uncert_val
+        # if test data is given, calculate the MSE
+        if len(self.params_test) > 0:
+            self.params_test, self.targets_test = self._get_test_points()
+            if self._has_derinfo:
+                mu_test, cov_test = self.gp.predict(X=self.params_test,
+                                                    full_covariance=False,
+                                                    return_cov=True)
+            else:
+                mu_test, cov_test = self.gp.predict(X=self.params_test,
+                                                    return_cov=True)
+            mse_test = mean_squared_error(self.targets_test, mu_test)
+            mse_test = mse_test
+            uncert_test = np.trace(cov_test)
+            self.mse_test = mse_test
+            self.uncert_test = uncert_test
         else:
-            self.mse_val = None
-            self.uncert_val = None
+            self.mse_test = None
+            self.uncert_test = None
 
         self._record_init_values()
 
+        itsamples = np.shape(self.params)[0]
         if self.verbose:
             print_log_mse_uncer(self._params_keys,
                                 self.params,
                                 self.targets,
-                                uncert=uncert,
-                                mse_val=mse_val,
-                                uncert_val=uncert_val,
+                                uncert_train=uncert_train,
+                                mse_test=mse_test,
+                                uncert_test=uncert_test,
                                 iteration=list(range(1, itsamples+1)),
                                 initial_params=True,
                                 print_header=True)
@@ -201,7 +198,7 @@ class UncertaintyOptimization():
         for i in range(niters):
             # propose the next sampling location
             param_next, uncert_next = self._find_next_location(
-                n_restarts=self.nminimizer_restarts)
+                n_restarts=self.minimizer_restarts)
 
             # add proposed location to the training set
             target_next = self._eval_fun(param_next)
@@ -213,32 +210,37 @@ class UncertaintyOptimization():
 
             # refit the GP
             if self._has_derinfo:
-                self._gp.fit(X=self.params, y=self.targets,
-                             dX=self.params, dy=self.dtargets)
+                self.gp.fit(X=self.params, y=self.targets,
+                            dX=self.params, dy=self.dtargets)
+                uncert_train = np.trace(self.gp.kernel_._cov_yy(self.params))
             else:
-                self._gp.fit(X=self.params, y=self.targets)
-            # mu, cov = self._gp.predict(X=self.params, return_cov=True)
-            cov = self._gp.kernel_(self.params, self.params)
-            uncert = np.trace(cov)
-            self.uncert = np.vstack((self.uncert , uncert))
-            self.theta = np.vstack((self.theta, self._gp.kernel_.theta))
+                self.gp.fit(X=self.params, y=self.targets)
+                uncert_train = np.trace(self.gp.kernel_(self.params))
+            self.uncert_train = np.vstack((self.uncert_train , uncert_train))
+            self.theta = np.vstack((self.theta, self.gp.kernel_.theta))
 
-            if len(self.params_val) > 0:
-                mu_val, cov_val = self._gp.predict(X=self.params_val,
-                                                   return_cov=True)
-                mse_val = mean_squared_error(self.targets_val, mu_val)
-                mse_val = mse_val
-                uncert_val = np.trace(cov_val)
-                self.mse_val = np.vstack((self.mse_val, mse_val))
-                self.uncert_val = np.vstack((self.uncert_val, uncert_val))
+            if len(self.params_test) > 0:
+                if self._has_derinfo:
+                    mu_test, cov_test = self.gp.predict(X=self.params_test,
+                                                        full_covariance=False,
+                                                        return_cov=True)
+                else:
+                    mu_test, cov_test = self.gp.predict(X=self.params_test,
+                                                        return_cov=True)
+
+                mse_test = mean_squared_error(self.targets_test, mu_test)
+                mse_test = mse_test
+                uncert_test = np.trace(cov_test)
+                self.mse_test = np.vstack((self.mse_test, mse_test))
+                self.uncert_test = np.vstack((self.uncert_test, uncert_test))
 
             itsamples+=1
             if self.verbose:
                 print_log_mse_uncer(
                     self._params_keys, param_next, target_next,
-                    uncert=uncert,
-                    mse_val=mse_val,
-                    uncert_val=uncert_val,
+                    uncert_train=uncert_train,
+                    mse_test=mse_test,
+                    uncert_test=uncert_test,
                     iteration=[itsamples],
                     print_header=False)
 
@@ -253,10 +255,10 @@ class UncertaintyOptimization():
             self.init_params = self.params
             self.init_targets = self.targets
             self.init_dtargets = []
-        self.init_uncert = self.uncert
+        self.init_uncert_train = self.uncert_train
         self.init_theta = self.theta
-        self.init_mse_val = self.mse_val
-        self.init_uncert_val = self.uncert_val
+        self.init_mse_test = self.mse_test
+        self.init_uncert_test = self.uncert_test
 
     def _record_bayes_values(self):
         if self._has_derinfo:
@@ -267,10 +269,10 @@ class UncertaintyOptimization():
             self.bayes_params = self.params[len(self.init_params):, :]
             self.bayes_targets = self.targets[len(self.init_params):, :]
             self.bayes_dtargets = []
-        self.bayes_uncert = self.uncert[1:]
+        self.bayes_uncert_train = self.uncert_train[1:]
         self.bayes_theta = self.theta[1:]
-        self.bayes_mse_val = self.mse_val[1:]
-        self.bayes_uncert_val = self.uncert_val[1:]
+        self.bayes_mse_test = self.mse_test[1:]
+        self.bayes_uncert_test = self.uncert_test[1:]
 
     def _eval_fun(self, params):
         targets = []
@@ -328,14 +330,14 @@ class UncertaintyOptimization():
                 return params, targets, dtargets
             return params, targets
 
-    def _get_validation_points(self):
-        if self.params_val is not None:
-            if self.params_val.ndim < 1:
+    def _get_test_points(self):
+        if self.params_test is not None:
+            if self.params_test.ndim < 1:
                 raise ValueError(
-                    "Expected 2D array for params_val, got 1D array instead. "
+                    "Expected 2D array for params_test, got 1D array instead. "
                     "Reshape using array.reshape(-1, 1) if your data has only "
                     "one pameter.")
-            params = np.copy(self.params_val)
+            params = np.copy(self.params_test)
             targets = self._eval_fun(params)
             return params, targets
         else:
@@ -356,47 +358,47 @@ class UncertaintyOptimization():
         return self._get_log()
 
     def _find_next_location(self, n_restarts):
-        def neg_acq(X):
-            return -self._global_uncert_search(X, gp=deepcopy(self._gp))
+        def global_uncert(X):
+            return self._expected_uncertainty(X, gp=deepcopy(self.gp))
 
         best_x = None
-        neg_uncert = 1e5
+        min_uncert = 1e5
         for i in range(n_restarts):
             if self.minimizer=='fmin_l_bfgs_b':
                 x0 = self.random_state.uniform(self._params_bounds_vals[:, 0],
                                                self._params_bounds_vals[:, 1],
                                                size=(1, self._nparams))
-                res = optimize.minimize(
-                    fun=neg_acq, x0=x0, method='L-BFGS-B',
-                    bounds=self._params_bounds_vals)
-                fval = res.fun[0]
-                x = res.x
+                if self.ignore_convergence_warnings:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore",
+                                              category=ConvergenceWarning)
+                        res = optimize.minimize(
+                            fun=global_uncert, x0=x0, method='L-BFGS-B',
+                            bounds=self._params_bounds_vals)
+                        fval = res.fun[0]
+                        x = res.x
+                else: # print all warnings
+                    res = optimize.minimize(
+                        fun=global_uncert, x0=x0, method='L-BFGS-B',
+                        bounds=self._params_bounds_vals)
+                    fval = res.fun[0]
+                    x = res.x
             elif callable(self.minimizer):
-                x, fval = self.minimizer(fun=neg_acq,
+                x, fval = self.minimizer(fun=global_uncert,
                                          bounds=self._params_bounds_vals)
             else:
                 raise ValueError("Unknown minimizer %s." % self.minimizer)
 
-            if fval < neg_uncert:
-                neg_uncert = fval
+            if fval < min_uncert:
+                min_uncert = fval
                 best_x = x
 
         best_x = np.array(best_x).reshape(1, self._nparams)
 
-        return best_x, -neg_uncert
+        return best_x, min_uncert
 
-    def _quick_uncert_search(self, X, gp):  # deprecated
-        X = np.reshape(X, (-1, self._nparams))
-        mu, cov = gp.predict(X=X, return_cov=True)
 
-        # distance between X and closest previous samples
-        min_edist = np.min(cdist(X, self.params))
-
-        uncert = np.trace(cov) + self.gamma * min_edist
-
-        return uncert.reshape(-1, 1)
-
-    def _global_uncert_search(self, X, gp):
+    def _expected_uncertainty(self, X, gp):
         X = np.reshape(X, (-1, self._nparams))
         y = gp.predict(X=X).reshape(-1, 1)
         X_temp = np.concatenate((self.params, X))
@@ -405,14 +407,9 @@ class UncertaintyOptimization():
             dy = gp.predict_der(dX=X).reshape(-1, self._nparams)
             dy_temp = np.concatenate((self.dtargets, dy))
             gp.fit(X=X_temp, y=y_temp, dX=X_temp, dy=dy_temp)
+            uncert = np.trace(gp.kernel_._cov_yy(X_temp))
         else:
             gp.fit(X=X_temp, y=y_temp)
+            uncert = np.trace(gp.kernel_(X_temp))
 
-        # distance between X and closest previous sample
-        min_edist = np.min(cdist(X, self.params))
-
-        # mu, cov = gp.predict(X_temp, return_cov=True)
-        cov = gp.kernel_(X_temp, X_temp)
-        neg_uncert = -(np.trace(cov) - self.gamma * min_edist)
-
-        return neg_uncert.reshape(-1, 1)
+        return uncert.reshape(-1, 1)

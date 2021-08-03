@@ -41,17 +41,21 @@ def print_log(params_keys, params, targets,
         else:
             print(cols)
 
-def print_log_mse_uncer(params_keys, params, targets, uncert,
+def print_log_mse_uncer(params_keys, params, targets,
                         iteration,
-                        mse_val=None, uncert_val=None,
+                        uncert_train=None,
+                        mse_test=None,
+                        uncert_test=None,
                         initial_params=False,
                         opt_param=False,
                         print_header=False):
-    col_names = params_keys + ["Target"] + ["Uncert"]
-    if mse_val is not None:
-        col_names += ["MSE val"]
-    if uncert_val is not None:
-        col_names += ["Uncert val"]
+    col_names = params_keys + ["Target"]
+    if uncert_train is not None:
+        col_names += ["Uncert train"]
+    if mse_test is not None:
+        col_names += ["MSE test"]
+    if uncert_test is not None:
+        col_names += ["Uncert test"]
     col_width = max(10, max([len(i) for i in col_names]))
 
     if print_header:
@@ -68,14 +72,17 @@ def print_log_mse_uncer(params_keys, params, targets, uncert,
         param_cols = "| ".join(
             "{:{}}".format("{0:4f}".format(param), col_width) for param in row)
         target_col = "| {:{}}".format("{0:4f}".format(targets[r, 0]), col_width)
-        uncert_col = "| {:{}}".format("{0:4f}".format(uncert), col_width)
-        cols = iter_col + param_cols + target_col + uncert_col
-        if mse_val is not None:
-            msev_col = "| {:{}}".format("{0:4f}".format(mse_val), col_width)
+        cols = iter_col + param_cols + target_col
+        if uncert_train is not None:
+            uncert_train_col = "| {:{}}".format(
+                "{0:4f}".format(uncert_train), col_width)
+            cols += uncert_train_col
+        if mse_test is not None:
+            msev_col = "| {:{}}".format("{0:4f}".format(mse_test), col_width)
             cols += msev_col
-        if uncert_val is not None:
+        if uncert_test is not None:
             uncert_col = "| {:{}}".format(
-                "{0:4f}".format(uncert_val), col_width)
+                "{0:4f}".format(uncert_test), col_width)
             cols += uncert_col
         cols += "|"
         if color_output:

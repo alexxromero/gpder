@@ -9,6 +9,7 @@ from sklearn.base import BaseEstimator, MultiOutputMixin, RegressorMixin
 from sklearn.utils.optimize import _check_optimize_result
 from sklearn.utils.validation import check_array
 from sklearn.utils.validation import check_random_state
+from sklearn.exceptions import ConvergenceWarning
 from scipy.linalg import cholesky, cho_solve, solve_triangular
 from scipy.optimize import minimize
 
@@ -128,6 +129,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     def __init__(self, kernel=None, alpha=1e-10,
                  optimizer="fmin_l_bfgs_b", n_restarts_optimizer=0,
                  normalize_y=False, copy_data=True,
+                 ignore_convergence_warnings=False,
                  random_state=None):
         self.kernel = kernel
         self.alpha = alpha
@@ -135,6 +137,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.n_restarts_optimizer = n_restarts_optimizer
         self.normalize_y = normalize_y
         self.copy_data = copy_data
+        self.ignore_convergence_warnings = ignore_convergence_warnings
         self.random_state = random_state
 
     def fit(self, X, y, dX=None, dy=None):
@@ -241,22 +244,31 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                                              clone_kernel=False)
 
         if self.has_derinfo_:
-            # for predicting function observations
+            # for predicting function observations using the
+            # full covariance matrix
             kernel_train = self.kernel_(X=self.X_train_, dX=self.dX_train_)
             kernel_train += self.alpha * np.eye((kernel_train.shape[0]))
             y_chol = np.concatenate((self.y_train_.reshape(-1,),
                                      self._dy_train_flat))
+            # for predicting function observations using the
+            # covariance between function obs only
+            kernel_train_yy = self.kernel_._cov_yy(self.X_train_)
+            kernel_train_yy += self.alpha \
+                            * np.eye((kernel_train_yy.shape[0]))
             # for predicting derivative observations
-            kernel_train_ders = self.kernel_._cov_ww(self.dX_train_)
-            kernel_train_ders += self.alpha \
-                               * np.eye((kernel_train_ders.shape[0]))
+            kernel_train_ww = self.kernel_._cov_ww(self.dX_train_)
+            kernel_train_ww += self.alpha \
+                               * np.eye((kernel_train_ww.shape[0]))
             try:
                 self.L_chol_ = cholesky(kernel_train, lower=True)
-                self._L_chol_der_ = cholesky(kernel_train_ders, lower=True)
+                self.L_chol_y_ = cholesky(kernel_train_yy, lower=True)
+                self._L_chol_der_ = cholesky(kernel_train_ww, lower=True)
             except np.linalg.LinAlgError as exc:
                 raise("The kernel is not positive definite. "
                       "Try increasing alpha.")
             self.alpha_chol_ = cho_solve((self.L_chol_, True), y_chol)
+            self.alpha_chol_y_ = cho_solve((self.L_chol_y_, True),
+                                            self.y_train_)
             self._alpha_chol_der_ = cho_solve((self._L_chol_der_, True),
                                                self._dy_train_flat)
         else:
@@ -273,7 +285,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         return self
 
 
-    def predict(self, X, return_cov=False, return_std=False):
+    def predict(self, X, return_cov=False, return_std=False,
+                full_covariance=True):
         """Predict using the Gaussian process regression model.
         Predictions can also be made with an unfitted model by using
         the GP prior.
@@ -293,6 +306,12 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             If True, the standard deviation of the predictive
             distribution at the query points is also returned along
             with the mean.
+
+        full_covariance: bool, default=False
+            If True, the full covariance matrix is used in the
+            prediction. Else, only the covariance between function
+            value correlations is used.
+            Useful only when derivatie information is used.
 
         Returns
         -------
@@ -336,20 +355,31 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         else:
             # Predict based on the trained kernel
             if self.has_derinfo_:
-                kernel_post = self.kernel_(X=self.X_train_, dX=self.X_train_,
+                kernel_post = self.kernel_(X=self.X_train_,
+                                           dX=self.X_train_,
                                            X_pred=X_star)
             else:
                 kernel_post = self.kernel_(X=X_star, Y=self.X_train_)
 
+            # undo normalization
             y_mean = kernel_post.dot(self.alpha_chol_)
             y_mean = self._y_train_std * y_mean + self._y_train_mean
 
             if return_cov:
-                v = cho_solve((self.L_chol_, True), kernel_post.T)
-                kernel_star = self.kernel_._cov_yy(X=X_star)
-                y_cov = kernel_star - kernel_post.dot(v)
-                y_cov = y_cov * self._y_train_std**2
-                return y_mean, y_cov
+                if full_covariance:
+                    v = cho_solve((self.L_chol_, True), kernel_post.T)
+                    kernel_star = self.kernel_._cov_yy(X=X_star)
+                    y_cov = kernel_star - kernel_post.dot(v)
+                    y_cov = y_cov * self._y_train_std**2
+                    return y_mean, y_cov
+                elif (not full_covariance) and (self.has_derinfo_):
+                    kernel_post_y = self.kernel_._cov_yy(X=X_star,
+                                                         Y=self.X_train_)
+                    v = cho_solve((self.L_chol_y_, True), kernel_post_y.T)
+                    kernel_star = self.kernel_._cov_yy(X=X_star)
+                    y_cov = kernel_star - kernel_post_y.dot(v)
+                    y_cov = y_cov * self._y_train_std**2
+                    return y_mean, y_cov
             elif return_std:
                 L_inv = solve_triangular(self.L_chol_.T,
                                          np.eye(self.L_chol_.shape[0]))
@@ -607,14 +637,27 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         if self.optimizer == "fmin_l_bfgs_b":
-            opt_res = minimize(
+            if self.ignore_convergence_warnings:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore",
+                                          category=ConvergenceWarning)
+                    opt_res = minimize(
+                    obj_func,
+                    initial_theta,
+                    method="L-BFGS-B",
+                    jac=True,
+                    #options={'maxiter':1000},
+                    bounds=bounds)
+                    _check_optimize_result("lbfgs", opt_res)
+            else:
+                opt_res = minimize(
                 obj_func,
                 initial_theta,
                 method="L-BFGS-B",
                 jac=True,
-                options={'maxiter':1000},
+                #options={'maxiter':1000},
                 bounds=bounds)
-            _check_optimize_result("lbfgs", opt_res)
+                _check_optimize_result("lbfgs", opt_res)
             theta_opt, func_min = opt_res.x, opt_res.fun
         elif callable(self.optimizer):
             theta_opt, func_min = \
