@@ -3,5 +3,7 @@ the custom kernels found in the kernel directory
 """
 
 from . import gaussian_process
+from . import warpers
 
 from .gaussian_process import GaussianProcessRegressor
+from .warpers import GPRSquareRootWarp

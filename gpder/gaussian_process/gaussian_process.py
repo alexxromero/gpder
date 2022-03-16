@@ -1,4 +1,4 @@
-"""Gaussian process regressor (GPR) with derivative observations."""
+"""Gaussian Process Regressor (GPR) with derivative observations."""
 
 import warnings
 from operator import itemgetter
@@ -62,15 +62,17 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         equal to the parameter bounds.
         All parameter bounds must be finite.
 
-    normalize_y: bool, default=False
-        If true, the target values 'y' are normalized by setting the
-        mean and standard deviation to one and zero respectively.
-        Normalization is recommended for cases where zero-mean and
-        unit-variance are used. The normalization is reversed before
-        the GP predictions are returned.
+    mean: float or callable, default=0
+        Mean function. If float, the mean is assumed to be constant and
+        to take the given value.
+
+    dmean: float or callable, default=0
+        Mean function of the derivative observations.
+        If float, the mean is assumed to be constant and to take the
+        given value.
 
     copy_data: bool, default=True
-        If true, a copy of the training data is stored int the object.
+        If true, a copy of the training data is stored in the object.
         Else, a reference to the training data is stored.
 
     random_state: int, RandomState instance or None, default=None
@@ -94,9 +96,6 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     dy_train_: array of shape (dnsamples, ndfeat), optional
         Partial derivatives of the target values observed at 'dX_train_'.
-
-    has_derinfo_: bool
-        True if derivative information is used when fitting the GP.
 
     log_marginal_likelihood_value_: float
         Log marginal likelihood of the GP.
@@ -126,13 +125,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     """
 
     def __init__(self, kernel=None, alpha=1e-10, optimizer="fmin_l_bfgs_b",
-                 n_restarts_optimizer=0,
-                 normalize_y=False, copy_data=True, random_state=None):
+                 n_restarts_optimizer=10, mean=0, dmean=0, copy_data=True,
+                 random_state=None):
         self.kernel = kernel
         self.alpha = alpha
         self.optimizer = optimizer
         self.n_restarts_optimizer = n_restarts_optimizer
-        self.normalize_y = normalize_y
+        self.mean = mean
+        self.dmean = dmean
         self.copy_data = copy_data
         self.random_state = random_state
 
@@ -149,7 +149,6 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         dX: array of shape (dnsamples, ndfeat), default=None
             Coordinates of the training derivative observation points.
-            The current version assumes all derivatives to be observed at dX.
             If only derivative information is available for some dimensions,
             idX can be used to especify the index of such dimensions.
 
@@ -158,7 +157,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         idX: array of shape (ndfeat,), default=None
             Array specifying the indices along which the derivative
-            information is taken. For example, if only the derivatives along
+            information is observed. For example, if only the derivatives along
             the 0th and 2nd dimensions are available, pass 'idX = [0, 2]'.
 
         Returns:
@@ -176,15 +175,15 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self.alpha = self._validate_alpha(self.alpha)
 
         if (dX is None) and (dy is None):
-            y_chol = self.y_train_
-            self.has_derinfo_ = False
+            y_chol = self.y_train_ - self.mean_(self.X_train_)
+            self._has_derinfo = False
         elif (dX is not None) and (dy is not None):
             dX = _atleast2d(dX)
             dy = _atleast2d(dy)
             dX, dy = self._validate_data(dX, dy,
                                          multi_output=True, y_numeric=True,
                                          ensure_2d=True, dtype="numeric")
-            self._idX = idX if idX is not None else np.arange(dX.shape[1])
+            self._idX = idX if idX is not None else np.arange(dy.shape[1])
             self.dX_train_ = np.copy(dX) if self.copy_data else dX
             self.dy_train_ = np.copy(dy) if self.copy_data else dy
             (dnsam, ndfeat) = dy.shape
@@ -192,29 +191,23 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             for i in range(dy.shape[1]):
                 dy_bin = self.dy_train_[:, i][..., np.newaxis]
                 self._dy_train_flat[i*dnsam : (i+1)*dnsam, :] = dy_bin
-            y_chol = np.concatenate((self.y_train_, self._dy_train_flat), axis=0)
-            self.has_derinfo_ = True
+            y_chol = np.concatenate(
+                (self.y_train_ - self.mean_(self.X_train_),
+                 self._dy_train_flat - self.dmean_(self.dX_train_)),
+                 axis=0)
+            self._has_derinfo = True
         else:
             raise ValueError("Both 'dX' and 'dy' must be passed if using "
                              "derivative information.")
 
         self._y_chol = y_chol
         if self.kernel is None:
-            if self.has_derinfo_:
+            if self._has_derinfo:
                 self.kernel_ = GPKernelDerAware()
             else:
                 self.kernel_ = GPKernel()
         else:
             self.kernel_ = clone(self.kernel)
-
-        if self.normalize_y:
-            self._y_train_mean = np.mean(self.y_train_ , axis=0)
-            self._y_train_std = np.std(self.y_train_ , axis=0)
-            self.y_train_ -= self._y_train_mean
-            self.y_train_ /= self._y_train_std
-        else:
-            self._y_train_mean = np.zeros(1)
-            self._y_train_std = 1
 
         if self.optimizer is not None and self.kernel_.n_dims > 0:
             def obj_func(theta, eval_gradient=True):
@@ -249,9 +242,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 self.log_marginal_likelihood(self.kernel_.theta,
                                              clone_kernel=False)
 
-        if self.has_derinfo_:
-            # hybrid kernel
-            kernel_train = self.kernel_(X=self.X_train_, dX=self.dX_train_, idX=self._idX)
+        if self._has_derinfo:
+            kernel_train = self.kernel_(X=self.X_train_,
+                                        dX=self.dX_train_,
+                                        idX=self._idX)
             kernel_train += self.alpha * np.eye((kernel_train.shape[0]))
             self._kernel_train = kernel_train
             try:
@@ -326,7 +320,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 kernel = GPKernel()
             else:
                 kernel = self.kernel
-            y_mean = np.zeros(X_star.shape[0])
+            y_mean = self.mean_(X_star)
             if return_cov:
                 y_cov = kernel(X=X_star)
                 return y_mean, y_cov
@@ -337,73 +331,42 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 return y_mean
         else:
             # Predict based on the trained kernel
-            if self.has_derinfo_:
+            if self._has_derinfo:
                 kernel_post = np.block(
                     [self.kernel_._cov_yy(X=X_star, Y=self.X_train_,
                                           noisy=False),
                      self.kernel_._cov_wy(X=X_star, dX=self.dX_train_,
-                                          #noisy=False,
-                                          idX=self._idX).T]
+                                          noisy=False, idX=self._idX).T]
                 )
-                y_mean = kernel_post.dot(self.alpha_chol_)
-                y_mean = self._y_train_std * y_mean + self._y_train_mean
-                if return_cov:
-                    v = cho_solve((self.L_chol_, True), kernel_post.T)
-                    kernel_star = self.kernel_._cov_yy(X=X_star, noisy=False)
-                    y_cov = kernel_star - kernel_post.dot(v)
-                    y_cov = y_cov * self._y_train_std**2
-                    return y_mean, y_cov
-                elif return_std:
-                    L_inv = solve_triangular(self.L_chol_.T,
-                                             np.eye(self.L_chol_.shape[0]))
-                    K_inv = L_inv.dot(L_inv.T)
-                    std2 = np.copy(
-                        np.diagonal(self.kernel_._cov_yy(X=X_star, noisy=False))
-                        )
-                    std2 -= np.einsum("ij,ij->i",
-                                      np.dot(kernel_post, K_inv),
-                                      kernel_post)
-                    std2_neg = std2 < 0  # set negative variances to 0
-                    if np.any(std2_neg):
-                        warnings.warn("Predicted variances smaller than 0. "
-                                      "Setting those variances to 0.")
-                        std2[std2_neg] = 0.0
-                    std2 = std2 * self._y_train_std**2
-                    y_std = np.sqrt(std2)
-                    return y_mean, y_std
-                else:
-                    return y_mean
             else:
                 kernel_post = self.kernel_._cov_yy(X=X_star, Y=self.X_train_,
                                                    noisy=False)
-                y_mean = kernel_post.dot(self.alpha_chol_)
-                y_mean = self._y_train_std * y_mean + self._y_train_mean
-                if return_cov:
-                    v = cho_solve((self.L_chol_, True), kernel_post.T)
-                    kernel_star = self.kernel_._cov_yy(X=X_star, noisy=False)
-                    y_cov = kernel_star - kernel_post.dot(v)
-                    y_cov = y_cov * self._y_train_std**2
-                    return y_mean, y_cov
-                elif return_std:
-                    L_inv = solve_triangular(self.L_chol_.T,
-                                             np.eye(self.L_chol_.shape[0]))
-                    K_inv = L_inv.dot(L_inv.T)
-                    std2 = np.copy(
-                        np.diagonal(self.kernel_._cov_yy(X=X_star, noisy=False))
-                        )
-                    std2 -= np.einsum("ij,ij->i",
-                                      np.dot(kernel_post, K_inv),
-                                      kernel_post)
-                    std2_neg = std2 < 0  # set negative variances to 0
-                    if np.any(std2_neg):
-                        warnings.warn("Predicted variances smaller than 0. "
-                                      "Setting those variances to 0.")
-                        std2[std2_neg] = 0.0
-                    std2 = std2 * self._y_train_std**2
-                    y_std = np.sqrt(std2)
-                    return y_mean, y_std
-                else:
-                    return y_mean
+
+            y_mean = self.mean_(X_star) + kernel_post.dot(self.alpha_chol_)
+            if return_cov:
+                v = cho_solve((self.L_chol_, True), kernel_post.T)
+                kernel_star = self.kernel_._cov_yy(X=X_star, noisy=False)
+                y_cov = kernel_star - kernel_post.dot(v)
+                return y_mean, y_cov
+            elif return_std:
+                L_inv = solve_triangular(self.L_chol_.T,
+                                         np.eye(self.L_chol_.shape[0]))
+                K_inv = L_inv.dot(L_inv.T)
+                std2 = np.copy(
+                    np.diagonal(self.kernel_._cov_yy(X=X_star, noisy=False))
+                    )
+                std2 -= np.einsum("ij,ij->i",
+                                  np.dot(kernel_post, K_inv),
+                                  kernel_post)
+                std2_neg = std2 < 0  # set negative variances to 0
+                if np.any(std2_neg):
+                    warnings.warn("Predicted variances smaller than 0. "
+                                  "Setting those variances to 0.")
+                    std2[std2_neg] = 0.0
+                y_std = np.sqrt(std2)
+                return y_mean, y_std
+            else:
+                return y_mean
 
 
     def predict_der(self, dX, return_cov=False, return_std=False):
@@ -447,49 +410,100 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 "Only one of return_std or return_cov can be true at the"
                 " same time.")
 
-        dX_star = check_array(_atleast2d(dX), ensure_2d=True,
-                              dtype="numeric")
+        dX_star = check_array(_atleast2d(dX), ensure_2d=True, dtype="numeric")
 
-        # Requires a fitted GP model
+        # If the model is not fitted, predict based on the GP prior
         if not hasattr(self, "dX_train_"):
-            raise ValueError(
-                "Prediction of derivative observations is only supported "
-                "for fitted GP models.")
-
-        kernel_post = np.block(
-            [self.kernel_._cov_wy(X=self.dX_train_, dX=dX_star,
-                                  #noisy=False,
-                                  idX=self._idX, ),
-             self.kernel_._cov_ww(dX=dX_star, dY=self.dX_train_,
-                                  noisy=False)]
-        )
-
-        dy_mean = kernel_post.dot(self.alpha_chol_)
-
-        if return_cov:
-            v = cho_solve((self.L_chol_, True), kernel_post.T)
-            kernel_star = self.kernel_._cov_ww(dX_star, noisy=False)
-            dy_cov = kernel_star - kernel_post.dot(v)
-            return dy_mean, dy_cov
-        elif return_std:
-            L_inv = solve_triangular(self.L_chol_.T,
-                                     np.eye(self.L_chol_.shape[0]))
-            K_inv = L_inv.dot(L_inv.T)
-            std2 = np.copy(
-                np.diagonal(self.kernel_._cov_ww(dX_star, noisy=False))
-                )
-            std2 -= np.einsum("ij,ij->i",
-                              np.dot(kernel_post, K_inv),
-                              kernel_post)
-            std2_neg = std2 < 0   # set negative variances to 0
-            if np.any(std2_neg):
-                warnings.warn("Predicted variances smaller than 0. "
-                              "Setting those variances to 0.")
-                std2[std2_neg] = 0.0
-            dy_std = np.sqrt(std2)
-            return dy_mean, dy_std
+            if self.kernel is None:
+                kernel = GPKernelDerAware()
+            else:
+                kernel = self.kernel
+            dy_mean = self.dmean_(dX_star)
+            if return_cov:
+                dy_cov = kernel(dX_star)
+                return dy_mean, dy_cov
+            elif return_std:
+                dy_std = np.sqrt(kernel.diag(dX_star))
+                return dy_mean, dy_std
+            else:
+                return dy_mean
         else:
-            return dy_mean
+            kernel_post = np.block(
+                [self.kernel_._cov_wy(X=self.dX_train_, dX=dX_star,
+                                      noisy=False, idX=self._idX),
+                 self.kernel_._cov_ww(dX=dX_star, dY=self.dX_train_,
+                                      noisy=False)]
+            )
+
+            dy_mean = self.dmean_(dX_star) + kernel_post.dot(self.alpha_chol_)
+
+            if return_cov:
+                v = cho_solve((self.L_chol_, True), kernel_post.T)
+                kernel_star = self.kernel_._cov_ww(dX_star, noisy=False)
+                dy_cov = kernel_star - kernel_post.dot(v)
+                return dy_mean, dy_cov
+            elif return_std:
+                L_inv = solve_triangular(self.L_chol_.T,
+                                         np.eye(self.L_chol_.shape[0]))
+                K_inv = L_inv.dot(L_inv.T)
+                std2 = np.copy(
+                    np.diagonal(self.kernel_._cov_ww(dX_star, noisy=False))
+                    )
+                std2 -= np.einsum("ij,ij->i",
+                                  np.dot(kernel_post, K_inv),
+                                  kernel_post)
+                std2_neg = std2 < 0   # set negative variances to 0
+                if np.any(std2_neg):
+                    warnings.warn("Predicted variances smaller than 0. "
+                                  "Setting those variances to 0.")
+                    std2[std2_neg] = 0.0
+                dy_std = np.sqrt(std2)
+                return dy_mean, dy_std
+            else:
+                return dy_mean
+
+    def mean_(self, X):
+        """Mean function.
+
+        Parameters
+        ----------
+        X: array of shape (nsamples, nfeat)
+            Coordinates of the sample points at which the mean is eval.
+
+        Returns
+        -------
+        mean: array of shape (nsamples,)
+            Expectation values at X.
+        """
+        if callable(self.mean):
+            return self.mean(X)
+        elif isinstance(self.mean, int) or isinstance(self.mean, float):
+            return np.ones((X.shape[0], 1)) * self.mean
+        else:
+            raise ValueError("mean should be an int or float if constant. "
+            "Else, pass a callable to define the mean at every location.")
+
+    def dmean_(self, dX):
+        """Mean function.
+
+        Parameters
+        ----------
+        dX: array of shape (ndsamples, ndfeat)
+            Coordinates of the derivative sample points at which the mean
+            is eval.
+
+        Returns
+        -------
+        mean: array of shape (nsamples,)
+            Expectation values at X.
+        """
+        if callable(self.mean):
+            return self.dmean(X)
+        elif isinstance(self.mean, int) or isinstance(self.mean, float):
+            return np.ones((dX.shape[0] * len(self._idX), 1)) * self.mean
+        else:
+            raise ValueError("dmean should be an int or float if constant. "
+            "Else, pass a callable to define the mean at every location.")
 
 
     def sample_y(self, X, ndraws=1, random_state=0):
@@ -585,13 +599,13 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             kernel.theta = theta
 
         if eval_gradient:
-            if self.has_derinfo_:
+            if self._has_derinfo:
                 K, K_gradient = kernel(X=self.X_train_, dX=self.dX_train_,
                                        idX=self._idX, eval_gradient=True)
             else:
                 K, K_gradient = kernel(self.X_train_, eval_gradient=True)
         else:
-            if self.has_derinfo_:
+            if self._has_derinfo:
                 K = kernel(X=self.X_train_, dX=self.dX_train_,
                            idX=self._idX, eval_gradient=False)
             else:

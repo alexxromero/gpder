@@ -77,9 +77,9 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def __init__(self, constant_value=1.0, constant_value_bounds=(1e-5, 1e5),
                  length_scale=1.0, length_scale_bounds=(1e-5, 1e5),
                  noise_level=1.0, noise_level_bounds=(1e-5, 1e5)):
-        self.constant_value = np.asarray(constant_value)
+        self.constant_value = constant_value
         self.constant_value_bounds = constant_value_bounds
-        self.length_scale = np.asarray(length_scale)
+        self.length_scale = length_scale
         self.length_scale_bounds = length_scale_bounds
         if noise_level is None:
             self.noisy = False
@@ -87,7 +87,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             self.noise_level_bounds = "fixed"
         else:
             self.noisy = True
-            self.noise_level = np.asarray(noise_level)
+            self.noise_level = noise_level
             self.noise_level_bounds = noise_level_bounds
 
     @property
