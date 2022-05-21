@@ -44,13 +44,13 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         If "fixed", constant_value parameter is not changed during
         the hyperparameter tunning.
 
-    length_scale: float or ndarray of shape (ndims), default=1.0
+    length_scale: float or ndarray of shape (ndims,), default=1.0
         Length scale of the RBF kernel.
 
     length_scale_bounds: "fixed" or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'length_scale'.
-        If "fixed", the length_scale parameter is not changed
-        during the hyperparameter tunning.
+        If "fixed", the length_scale parameter is not changed during
+        the hyperparameter tunning.
 
     noise_level: float or None, default=1.0
         Parameter controlling the noise level of X.
@@ -83,7 +83,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         self.length_scale_bounds = length_scale_bounds
         if noise_level is None:
             self.noisy = False
-            self.noise_level = np.asarray(0)
+            self.noise_level = np.array(0)
             self.noise_level_bounds = "fixed"
         else:
             self.noisy = True
@@ -110,22 +110,21 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                                   self.length_scale_bounds)
     @property
     def hyperparameter_noise_level(self):
-        return Hyperparameter(
-            "noise_level", "numeric", self.noise_level_bounds)
+        return Hyperparameter("noise_level", "numeric",
+                              self.noise_level_bounds)
 
-    def __call__(self, X, Y=None,
-                 eval_gradient=False):
+    def __call__(self, X, Y=None, eval_gradient=False):
         """Returns the kernel and optionally its gradient.
 
         Parameters
         ----------
         X: ndimarray of shape (nsamples_X, ndimims_X)
-            Left argument of the kernel. If only X is passed,
-            k(X, X) is returned.
+            Left argument of the kernel.
+            If only X is passed, k(X, X) is returned.
 
         Y: ndimarray of shape (nsamples_Y, ndimims_Y), default=None
-            Right argument of the kernel. Can only be passed if X
-            is also passed, returning k(X, Y).
+            Right argument of the kernel.
+            Can only be passed if X is also passed. Then, k(X, Y) is returned.
 
         eval_gradient: bool, default=False
             If True, the gradient with respect to the log of the
@@ -137,7 +136,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         K: array of shape (nsamples_X, nsamples_X)
             Kernel.
 
-        K_grad: array of shape (nsamples_X, nsamples_X, 3)
+        K_grad: array of shape (nsamples_X, nsamples_X, nparams)
             Gradient of the kernel wrt the log of the hyperparameters.
             Only returned if eval_gradient is True.
         """
@@ -159,7 +158,7 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             K = np.exp(-0.5 * dists2)
             return K
 
-    def _cov_yy(self, X, Y=None, noisy=True, eval_gradient=False):
+    def _cov_yy(self, X, Y=None, noisy=False, eval_gradient=False):
         if Y is None:
             (nX, ndim) = X.shape
             K = self.constant_value * self._rbf(X)
@@ -169,52 +168,48 @@ class GPKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 # -- wrt the log of the constant value -- #
                 if self.hyperparameter_constant_value.fixed:
-                    K_grad_const = np.empty((_num_samples(X),
-                                             _num_samples(X), 0))
+                    dK_dconst = np.empty((_num_samples(X), _num_samples(X), 0))
                 else:
-                    K_grad_const = self._rbf(X)[:, :, np.newaxis]
-                    K_grad_const *= self.constant_value
+                    dK_dconst = self._rbf(X)[:, :, np.newaxis]
+                    dK_dconst *= self.constant_value
                 # -- wrt the log of the length scale -- #
                 if self.hyperparameter_length_scale.fixed:
-                    K_grad_lensc = np.empty((_num_samples(X),
-                                             _num_samples(X), 0))
+                    dK_dls = np.empty((_num_samples(X), _num_samples(X), 0))
                 else:
                     if not self.anisotropic_length_scale:
                         dists2 = pdist(X / self.length_scale, metric='sqeuclidean')
                         dists2 = squareform(dists2)
-                        K_grad_lensc = self.constant_value * dists2 * self._rbf(X)
-                        K_grad_lensc = K_grad_lensc[:, :, np.newaxis]
+                        dK_dls = self.constant_value * dists2 * self._rbf(X)
+                        dK_dls = dK_dls[:, :, np.newaxis]
                     else:
                         dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :])**2
                         dists2 /= self.length_scale**2
-                        K_grad_lensc = self.constant_value * dists2 * self._rbf(X)[..., np.newaxis]
+                        dK_dls = self.constant_value * dists2 * self._rbf(X)[..., np.newaxis]
                 # -- wrt the log of the noise level -- #
-                if self.hyperparameter_noise_level.fixed:
-                    K_grad_noise = np.empty((_num_samples(X),
-                                             _num_samples(X), 0))
+                if noisy and not self.hyperparameter_noise_level.fixed:
+                    dK_dnoise = np.eye(_num_samples(X))[..., np.newaxis]
+                    dK_dnoise *= self.noise_level
                 else:
-                    K_grad_noise = self.noise_level * np.eye(_num_samples(X))
-                    K_grad_noise = K_grad_noise[..., np.newaxis]
+                    dK_dnoise = np.empty((_num_samples(X), _num_samples(X), 0))
 
-                return K, np.concatenate((K_grad_const,
-                                          K_grad_lensc,
-                                          K_grad_noise), axis=-1)
+                return K, np.concatenate((dK_dconst, dK_dls, dK_dnoise), axis=-1)
             else:
                 return K
         else:
             if eval_gradient:
                 raise ValueError("Grad can only be evaluated when Y is None.")
             K = self.constant_value * self._rbf(X, Y)
+            if noisy:
+                K += self.noise_level * np.eye(nX)
             return K
 
     def __repr__(self):
         if not self.anisotropic_length_scale:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
-                np.sqrt(self.constant_value),
-                np.ravel(self.length_scale)[0])
+            desc = "{0:.3g} * RBF(length_scale={1:.3g})".format(
+                self.constant_value, np.ravel(self.length_scale)[0])
         else:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale=[{1}])".format(
-                np.sqrt(self.constant_value),
+            desc = "{0:.3g} * RBF(length_scale=[{1}])".format(
+                self.constant_value,
                 ", ".join(map("{0:.3g}".format, self.length_scale)))
         if self.noisy:
             desc += " + WhiteKernel(noise_level={0:.3g})".format(

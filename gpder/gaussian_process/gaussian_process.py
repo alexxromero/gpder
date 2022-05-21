@@ -18,7 +18,7 @@ from .kernels.utils import _atleast2d
 __all__ = ['GaussianProcessRegressor']
 
 class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
-    """Gaussian process (GP) regressor w/derivative observations.
+    """Gaussian process regressor w/derivative observations.
 
     GaussianProcessRegressor is based on scikit-learn's
     GaussianProcessRegressor and Algorithm 2.1 of Gaussian Processes
@@ -40,7 +40,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         The log of the kernel's parameters is stored in the
         vector 'theta'.
 
-    alpha: float or array of shape (n_samples,), default=1e-6
+    alpha: float or array of shape (n_samples,), default=0
         Value added to the diagonal of the kernel matrix during
         fitting to prevent numerical issues by ensuring that the
         matrtix is positive definitte.
@@ -124,7 +124,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Conference (CGNCC), Nanjing, 2016, pp. 1963-1968.
     """
 
-    def __init__(self, kernel=None, alpha=1e-10, optimizer="fmin_l_bfgs_b",
+    def __init__(self, kernel=None, alpha=0, optimizer="fmin_l_bfgs_b",
                  n_restarts_optimizer=10, mean=0, dmean=0, copy_data=True,
                  random_state=None):
         self.kernel = kernel
@@ -183,7 +183,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             dX, dy = self._validate_data(dX, dy,
                                          multi_output=True, y_numeric=True,
                                          ensure_2d=True, dtype="numeric")
-            self._idX = idX if idX is not None else np.arange(dy.shape[1])
+            self._idX = np.array(idX) if idX is not None else np.arange(dy.shape[1])
             self.dX_train_ = np.copy(dX) if self.copy_data else dX
             self.dy_train_ = np.copy(dy) if self.copy_data else dy
             (dnsam, ndfeat) = dy.shape
@@ -239,31 +239,23 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self.log_marginal_likelihood_value_ = -np.min(lml_values)
         else:
             self.log_marginal_likelihood_value_ = \
-                self.log_marginal_likelihood(self.kernel_.theta,
-                                             clone_kernel=False)
+                self.log_marginal_likelihood(self.kernel_.theta, clone_kernel=False)
 
         if self._has_derinfo:
-            kernel_train = self.kernel_(X=self.X_train_,
-                                        dX=self.dX_train_,
-                                        idX=self._idX)
-            kernel_train += self.alpha * np.eye((kernel_train.shape[0]))
-            self._kernel_train = kernel_train
-            try:
-                self.L_chol_ = cholesky(kernel_train, lower=True)
-            except np.linalg.LinAlgError as exc:
-                raise("The kernel is not positive definite. "
-                      "Try increasing alpha.")
-            self.alpha_chol_ = cho_solve((self.L_chol_, True), self._y_chol)
+            kernel_train = self.kernel_(
+                X=self.X_train_, dX=self.dX_train_, idX=self._idX,
+                )
         else:
             kernel_train = self.kernel_(X=self.X_train_)
-            kernel_train += self.alpha * np.eye((kernel_train.shape[0]))
-            self._kernel_train = kernel_train
-            try:
-                self.L_chol_ = cholesky(kernel_train, lower=True)
-            except np.linalg.LinAlgError as exc:
-                raise("The kernel is not positive definite. "
-                      "Try increasing alpha.")
-            self.alpha_chol_ = cho_solve((self.L_chol_, True), self._y_chol)
+        kernel_train += self.alpha * np.eye((kernel_train.shape[0]))
+        self._kernel_train = kernel_train
+        try:
+            self.L_chol_ = cholesky(kernel_train, lower=True)
+        except np.linalg.LinAlgError as exc:
+            raise("The kernel is not positive definite. "
+                  "Try increasing alpha.")
+        self.alpha_chol_ = cho_solve((self.L_chol_, True), self._y_chol)
+        self.kernel = self.kernel_
         return self
 
 
@@ -333,14 +325,11 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             # Predict based on the trained kernel
             if self._has_derinfo:
                 kernel_post = np.block(
-                    [self.kernel_._cov_yy(X=X_star, Y=self.X_train_,
-                                          noisy=False),
-                     self.kernel_._cov_wy(X=X_star, dX=self.dX_train_,
-                                          noisy=False, idX=self._idX).T]
+                    [self.kernel_._cov_yy(X=X_star, Y=self.X_train_, noisy=False),
+                     self.kernel_._cov_wy(X=X_star, dX=self.dX_train_, idX=self._idX).T]
                 )
             else:
-                kernel_post = self.kernel_._cov_yy(X=X_star, Y=self.X_train_,
-                                                   noisy=False)
+                kernel_post = self.kernel_._cov_yy(X=X_star, Y=self.X_train_, noisy=False)
 
             y_mean = self.mean_(X_star) + kernel_post.dot(self.alpha_chol_)
             if return_cov:
@@ -369,7 +358,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 return y_mean
 
 
-    def predict_der(self, dX, return_cov=False, return_std=False):
+    def predict_der(self, dX, return_cov=False, return_std=False, flatten=False):
         """Predict the gradients at dX using the GP model.
 
         Parameters
@@ -419,6 +408,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             else:
                 kernel = self.kernel
             dy_mean = self.dmean_(dX_star)
+            if not flatten:
+                dy_mean = dy_mean.reshape(-1, self.dy_train_.shape[1])
             if return_cov:
                 dy_cov = kernel(dX_star)
                 return dy_mean, dy_cov
@@ -429,17 +420,22 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 return dy_mean
         else:
             kernel_post = np.block(
-                [self.kernel_._cov_wy(X=self.dX_train_, dX=dX_star,
-                                      noisy=False, idX=self._idX),
-                 self.kernel_._cov_ww(dX=dX_star, dY=self.dX_train_,
-                                      noisy=False)]
+                [self.kernel_._cov_wy(X=self.dX_train_, dX=dX_star, idX=self._idX),
+                 self.kernel_._cov_ww(dX=dX_star, dY=self.dX_train_, idX=self._idX, noisy=False)
+                ]
             )
 
             dy_mean = self.dmean_(dX_star) + kernel_post.dot(self.alpha_chol_)
-
+            if not flatten:
+                n = self._idX.shape[0]
+                m = dX_star.shape[0]
+                dy_mean_arr = np.zeros((m, n))
+                for i in range(n):
+                    dy_mean_arr[:, i] = dy_mean[i*m:(i+1)*m, :].ravel()
+                dy_mean = dy_mean_arr
             if return_cov:
                 v = cho_solve((self.L_chol_, True), kernel_post.T)
-                kernel_star = self.kernel_._cov_ww(dX_star, noisy=False)
+                kernel_star = self.kernel_._cov_ww(dX_star, idX=self._idX, noisy=False)
                 dy_cov = kernel_star - kernel_post.dot(v)
                 return dy_mean, dy_cov
             elif return_std:
@@ -447,7 +443,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                                          np.eye(self.L_chol_.shape[0]))
                 K_inv = L_inv.dot(L_inv.T)
                 std2 = np.copy(
-                    np.diagonal(self.kernel_._cov_ww(dX_star, noisy=False))
+                    np.diagonal(self.kernel_._cov_ww(dX_star, idX=self._idX, noisy=False))
                     )
                 std2 -= np.einsum("ij,ij->i",
                                   np.dot(kernel_post, K_inv),
@@ -458,6 +454,11 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                                   "Setting those variances to 0.")
                     std2[std2_neg] = 0.0
                 dy_std = np.sqrt(std2)
+                if not flatten:
+                    dy_std_arr = np.zeros((dX_star.shape[0], n))
+                    for i in range(n):
+                        dy_std_arr[:, i] = dy_std[i*m:(i+1)*m]
+                    dy_std = dy_std_arr
                 return dy_mean, dy_std
             else:
                 return dy_mean
@@ -600,16 +601,20 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         if eval_gradient:
             if self._has_derinfo:
-                K, K_gradient = kernel(X=self.X_train_, dX=self.dX_train_,
-                                       idX=self._idX, eval_gradient=True)
+                K, K_gradient = kernel(
+                    X=self.X_train_, dX=self.dX_train_, idX=self._idX,
+                    eval_gradient=True
+                    )
             else:
                 K, K_gradient = kernel(self.X_train_, eval_gradient=True)
         else:
             if self._has_derinfo:
-                K = kernel(X=self.X_train_, dX=self.dX_train_,
-                           idX=self._idX, eval_gradient=False)
+                K = kernel(
+                    X=self.X_train_, dX=self.dX_train_, idX=self._idX,
+                    eval_gradient=False
+                    )
             else:
-                K = kernel(self.X_train_, eval_gradient=False)
+                K, K_gradient = kernel(self.X_train_, eval_gradient=True)
 
         K[np.diag_indices_from(K)] += self.alpha
         try:

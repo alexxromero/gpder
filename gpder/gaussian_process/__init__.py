@@ -1,9 +1,9 @@
-"""The mod gaussian_process implements Gaussian Process regression with
-the custom kernels found in the kernel directory
+"""
+The gaussian_process module implements the Gaussian Process regression.
 """
 
 from . import gaussian_process
 from . import warpers
 
 from .gaussian_process import GaussianProcessRegressor
-from .warpers import GPRSquareRootWarp
+from .warpers import GPWarper

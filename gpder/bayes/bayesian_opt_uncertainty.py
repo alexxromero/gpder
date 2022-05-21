@@ -85,6 +85,7 @@ class BayesUncertaintyOptimization():
                              X_opt,
                              dX_init=None, dy_init=None,
                              acquisition_opt='trace',
+                             batch_size=None,
                              n_iters=10,
                              minimizer='fmin_l_bfgs_b',
                              n_minimizer_restarts=10,
@@ -94,22 +95,29 @@ class BayesUncertaintyOptimization():
 
         Parameters
         ----------
-        X_init: ndarray of shape (ntr, nparams)
+        X_init: ndarray of shape (ninit, nparams)
             Coordinates of the initial function observations.
 
-        y_init: ndarray of shape (ntr,)
+        y_init: ndarray of shape (ninit,)
             Values of the initial function observations evaluated at 'X_train'.
 
-        dX_init: ndarray of shape (ndtr, ndparams), optional
+        X_opt: ndarray of shape(nopt, nparams)
+            Coordinates of the function observations that will be used to
+            estimate the expected uncertainty of the model.
+
+        dX_init: ndarray of shape (ndinit, ndparams), optional
             Coordinates of the initial function derivative observations.
 
-        dy_train: ndarray of shape (ndtr, ndparams), optional
+        dy_train: ndarray of shape (ndinit, ndparams), optional
             Values of the initial function derivative observations
             evaluated at 'dX_train'.
 
         acquisition_opt: string, default='trace'
             Measure of the global uncertainty to minimize.
              Options: {'trace', 'determinant'}
+
+        batch_size: int, default=None
+            Batch size
 
         n_iters: int, default=10
             Number of iterations. At every iteration, a Bayesian
@@ -134,13 +142,14 @@ class BayesUncertaintyOptimization():
         self.dX_init, self.dy_init = dX_init, dy_init
         self.X_opt = X_opt
         self.acquisition_opt = acquisition_opt
+        self.batch_size = batch_size
         self.n_iters = n_iters
         self.minimizer = minimizer
         self.n_minimizer_restarts = n_minimizer_restarts
         self.workers = workers
 
         self.X_train = self.X_init
-        self.y_train = self.y_init
+        self.y_train = np.array(self.y_init).reshape(-1,)
         if self._has_derinfo:
             if (self.dX_init is not None) and (self.dy_init is not None):
                 self.dX_train = self.dX_init
@@ -205,7 +214,8 @@ class BayesUncertaintyOptimization():
 
     def _find_next_X(self, n_restarts):
         def neg_acquisition_fun(X):
-            return -1 * self._acq.utility(X, Xpred=self.X_opt, gp=self.gp)
+            return -1 * self._acq.utility(X, Xpred=self.X_opt, gp=self.gp,
+                                          batch_size=self.batch_size)
 
         best_x = None
         min_val = 1e30  # dummy large number

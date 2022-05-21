@@ -1,4 +1,5 @@
-"""Custom kernels for Gaussian Process Regression.
+"""
+Custom kernels for Gaussian Process regression.
 
 GPKernelDerAware is based on
 https://papers.nips.cc/paper/2002/file/5b8e4fd39d9786228649a8a8bec4e008-Paper.pdf

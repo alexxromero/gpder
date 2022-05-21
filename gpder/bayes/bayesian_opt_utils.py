@@ -13,6 +13,7 @@ def print_log(params_keys, params, targets,
               iteration_ids,
               opt_param=False,
               print_header=False):
+    targets = np.array(targets).reshape(-1,)
     col_names = params_keys + ["Target"]
     col_width = max(10, max([len(i) for i in col_names]))
 

@@ -56,7 +56,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     noise_level: float or None, default=1.0
         Parameter controlling the magnitude of the white noise added to the
-        observation kernel K(X, X).
+        kernel between function observations, K(X, X).
 
     noise_level_bounds: "fixed" or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'noise_level'.
@@ -65,7 +65,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     noise_level_dX: float, None, or ndarray of shape (ndim_dX), default=1.0
         Parameter controlling the magnitude of the white noise added to the
-        derivative observation kernel K(dX, dX).
+        kernel between derivative observations, K(dX, dX).
 
     noise_level_dX_bounds: "fixed" or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'noise_level'.
@@ -74,12 +74,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     noise_level_XdX: float, None, or ndarray of shape (ndim_dX), default=1.0
         Parameter controlling the magnitude of the white noise added to the
-        mixed observation/derivative kernel K(X, dX).
-
-    noise_level_XdX_bounds: "fixed" or pair of floats > 0, default=(1e-5, 1e5)
-        The lower and upper bounds of 'noise_level'.
-        If "fixed", the noise_level parameter is not changed during
-        the hyperparameter tunning.
+        mixed kernel between function/derivative observations, kernel K(X, dX).
 
     References
     ----------
@@ -98,8 +93,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def __init__(self, constant_value=1.0, constant_value_bounds=(1e-5, 1e5),
                  length_scale=1.0, length_scale_bounds=(1e-5, 1e5),
                  noise_level=1.0, noise_level_bounds=(1e-5, 1e5),
-                 noise_level_dX=1.0, noise_level_dX_bounds=(1e-5, 1e5),
-                 noise_level_XdX=None, noise_level_XdX_bounds=(1e-5, 1e5)):
+                 noise_level_dX=1.0, noise_level_dX_bounds=(1e-5, 1e5)):
         self.constant_value = constant_value
         self.constant_value_bounds = constant_value_bounds
         self.length_scale = length_scale
@@ -120,14 +114,6 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             self.noisy_dX = True
             self.noise_level_dX = noise_level_dX
             self.noise_level_dX_bounds = noise_level_dX_bounds
-        if noise_level_XdX is None:
-            self.noisy_XdX = False
-            self.noise_level_XdX = np.array(0)
-            self.noise_level_XdX_bounds = "fixed"
-        else:
-            self.noisy_XdX = True
-            self.noise_level_XdX = noise_level_XdX
-            self.noise_level_XdX_bounds = noise_level_XdX_bounds
 
     @property
     def hyperparameter_constant_value(self):
@@ -150,7 +136,8 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     @property
     def hyperparameter_noise_level(self):
-        return Hyperparameter("noise_level", "numeric", self.noise_level_bounds)
+        return Hyperparameter("noise_level", "numeric",
+                              self.noise_level_bounds)
 
     @property
     def anisotropic_noise_level_dX(self):
@@ -165,21 +152,6 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         else:
             return Hyperparameter("noise_level_dX", "numeric",
                                    self.noise_level_dX_bounds)
-
-    @property
-    def anisotropic_noise_level_XdX(self):
-        return np.iterable(self.noise_level_XdX) and len(self.noise_level_XdX) > 1
-
-    @property
-    def hyperparameter_noise_level_XdX(self):
-        if self.anisotropic_noise_level_XdX:
-            return Hyperparameter("noise_level_XdX", "numeric",
-                                  self.noise_level_XdX_bounds,
-                                  len(self.noise_level_XdX))
-        else:
-            return Hyperparameter("noise_level_XdX", "numeric",
-                                   self.noise_level_XdX_bounds)
-
 
     def __call__(self, X, dX=None, idX=None, eval_gradient=False):
         """Returns the kernel and optionally its gradient.
@@ -196,8 +168,8 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         idX: ndarrat of shape (ndim_dX,)
             default=None
-            Array indicating the index of the dimensions along which the
-            derivative information was taken. If None, it is assumed that
+            Array indicating the indices of the dimensions along which the
+            derivative information is taken. If None, it is assumed that
             the derivative information is provided in all dimensions
             (ndim_dX = ndim_X).
 
@@ -211,7 +183,7 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             Kernel.
 
         K_grad: ndimarray of shape
-                (nsamples_X+nsamples_dX, nsamples_X+nsamples_dX, 3)
+                (nsamples_X+nsamples_dX, nsamples_X+nsamples_dX, nparams)
             Gradient of the kernel wrt the log of the hyperparameters.
             Only returned if eval_gradient is True.
         """
@@ -244,34 +216,27 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 K += self.noise_level * np.eye(nX)
 
             if eval_gradient:
-                (K_grad_const, K_grad_lensc,
-                 K_grad_noise, K_grad_noise_dX, K_grad_noise_XdX) =\
+                (dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX) = \
                     self._initialize_gradients((nX, nX))
                 # -- wrt the log of the constant value -- #
                 if not self.hyperparameter_constant_value.fixed:
-                    K_grad_const = self._rbf(X)[:, :, np.newaxis]
-                    K_grad_const *= self.constant_value
+                    dK_dconst = self._rbf(X)[:, :, np.newaxis]
+                    dK_dconst *= self.constant_value
                 # -- wrt the log of the length scale -- #
                 if not self.hyperparameter_length_scale.fixed:
                     if not self.anisotropic_length_scale:
-                        dists2 = pdist(X / self.length_scale,
-                                       metric='sqeuclidean')
+                        dists2 = pdist(X / self.length_scale, metric='sqeuclidean')
                         dists2 = squareform(dists2)
                         grad = self.constant_value * dists2 * self._rbf(X)
-                        K_grad_lensc = grad[:, :, np.newaxis]
+                        dK_dls = grad[:, :, np.newaxis]
                     else:
                         dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :])**2
                         dists2 /= self.length_scale**2
-                        grad = dists2 * self._rbf(X)[..., np.newaxis]
-                        K_grad_lensc = self.constant_value * grad
+                        grad = self.constant_value * dists2 * self._rbf(X)[..., np.newaxis]
                 # -- wrt the log of the noise level -- #
                 if noisy and not self.hyperparameter_noise_level.fixed:
-                        K_grad_noise += self.noise_level * np.eye(nX)[:, :, np.newaxis]
-                return K, np.concatenate((K_grad_const,
-                                          K_grad_lensc,
-                                          K_grad_noise,
-                                          K_grad_noise_dX,
-                                          K_grad_noise_XdX), axis=-1)
+                        dK_dnoise += self.noise_level * np.eye(nX)[:, :, np.newaxis]
+                return K, np.concatenate((dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX), axis=-1)
             return K
         else:
             if eval_gradient:
@@ -280,10 +245,12 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             return K
 
 
-    def _cov_ww(self, dX, dY=None, noisy=True, eval_gradient=False):
+    def _cov_ww(self, dX, dY=None, idX=None, noisy=True, eval_gradient=False):
         if dY is None:
             dY = dX
         else:
+            if dX.shape[1] != dY.shape[1]:
+                raise ValueError("dX and dY must have the same number of dimensions.")
             if eval_gradient:
                 raise ValueError("Grad can only be evaluated when dY is None.")
 
@@ -300,35 +267,38 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             else:
                 noise_level_dX = self.noise_level_dX
 
-        K = np.zeros((ndX*ndim, ndY*ndim))
-        (K_grad_const, K_grad_lensc,
-         K_grad_noise, K_grad_noise_dX, K_grad_noise_XdX) =\
-            self._initialize_gradients((ndX*ndim, ndY*ndim))
-        for i in range(ndim):
-            for j in range(ndim):
-                dist_i = dX[:, i].reshape(-1, 1) - dY[:, i].reshape(-1, 1).T
-                dist_j = dX[:, j].reshape(-1, 1) - dY[:, j].reshape(-1, 1).T
-                dist_i_scl = dist_i * 1. / length_scale[i]**2  # scaled
-                dist_j_scl = dist_j * 1. / length_scale[j]**2  # scaled
-                dij = (i==j) / length_scale[i]**2
+        sel_dims = np.arange(ndim)
+        if idX is not None:
+            sel_dims = sel_dims[idX]
+
+        K = np.zeros((ndX*len(sel_dims), ndY*len(sel_dims)))
+        (dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX) =\
+            self._initialize_gradients((ndX*len(sel_dims), ndY*len(sel_dims)))
+
+        for i, idim in enumerate(sel_dims):
+            for j, jdim in enumerate(sel_dims):
+                dist_i = dX[:, idim].reshape(-1, 1) - dY[:, idim].reshape(-1, 1).T
+                dist_j = dX[:, jdim].reshape(-1, 1) - dY[:, jdim].reshape(-1, 1).T
+                dist_i_scl = dist_i * 1. / length_scale[idim]**2  # scaled
+                dist_j_scl = dist_j * 1. / length_scale[jdim]**2  # scaled
+                dij = (idim==jdim) / length_scale[idim]**2
                 coeff = dij - (dist_i_scl * dist_j_scl)
                 Kij = self.constant_value * coeff * self._rbf(dX, dY)
                 K[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] = Kij
-                if noisy and i==j:
-                    K[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] += noise_level_dX[i] * np.eye(ndX, ndY)
+                if noisy and idim==jdim:
+                    K[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] += noise_level_dX[idim] * np.eye(ndX, ndY)
                 if eval_gradient:
                     # -- wrt the log of the constant value -- #
                     if not self.hyperparameter_constant_value.fixed:
-                        K_grad_const[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = Kij[:, :, np.newaxis]
+                        dK_dconst[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = Kij[:, :, np.newaxis]
                     # -- wrt the log of the length scale -- #
                     if not self.hyperparameter_length_scale.fixed:
                         if not self.anisotropic_length_scale:
-                            dists2 = pdist(dX / self.length_scale,
-                                           metric='sqeuclidean')
+                            dists2 = pdist(dX / self.length_scale, metric='sqeuclidean')
                             dists2 = squareform(dists2)
                             d1 = coeff * dists2 * self._rbf(dX)
                             d1 = d1[:, :, np.newaxis]
-                            dcoeff = -2*(i==j) / self.length_scale**2
+                            dcoeff = -2*(idim==jdim) / self.length_scale**2
                             dcoeff += 4*(dist_i_scl * dist_j_scl)
                             d2 = dcoeff * self._rbf(dX)
                             d2 = d2[:, :, np.newaxis]
@@ -337,115 +307,81 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                             dists2 /= self.length_scale**2
                             d1 = coeff[..., np.newaxis] * dists2 * self._rbf(dX)[..., np.newaxis]
                             dcoeff = 4*(dist_i_scl * dist_j_scl)
-                            dcoeff = np.repeat(dcoeff[..., np.newaxis],
-                                               len(self.length_scale), axis=2)
-                            dcoeff -= 2*(i==j) / self.length_scale**2
+                            dcoeff = np.repeat(dcoeff[..., np.newaxis], len(self.length_scale), axis=2)
+                            dcoeff -= 2*(idim==jdim) / self.length_scale**2
                             d2 = dcoeff * self._rbf(dX)[..., np.newaxis]
-                        K_grad_lensc[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = self.constant_value * (d1 + d2)
+                        dK_dls[i*ndX:(i+1)*ndX, j*ndX:(j+1)*ndX] = self.constant_value * (d1 + d2)
                     # -- wrt the noise dX -- #
                     if noisy and not self.hyperparameter_noise_level_dX.fixed:
-                        if i==j:
+                        if idim==jdim:
                             if not self.anisotropic_noise_level_dX:
                                 noise_grad = self.noise_level_dX * np.eye(ndX, ndY)[:, :, np.newaxis]
-                                K_grad_noise_dX[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] += noise_grad
+                                dK_dnoisedX[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY] += noise_grad
                             else:
-                                noise_grad = self.noise_level_dX[i] * np.eye(ndX, ndY)
-                                K_grad_noise_dX[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY, i] += noise_grad
+                                noise_grad = self.noise_level_dX[idim] * np.eye(ndX, ndY)
+                                dK_dnoisedX[i*ndX:(i+1)*ndX, j*ndY:(j+1)*ndY, i] += noise_grad
         if eval_gradient:
-            return K, np.concatenate((K_grad_const,
-                                      K_grad_lensc,
-                                      K_grad_noise,
-                                      K_grad_noise_dX,
-                                      K_grad_noise_XdX), axis=-1)
+            return K, np.concatenate((dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX), axis=-1)
         else:
             return K
 
 
-    def _cov_wy(self, X, dX, idX=None, noisy=True, eval_gradient=False):
+    def _cov_wy(self, X, dX, idX=None, eval_gradient=False):
         (nX, ndimX) = X.shape
         (ndX, ndimdX) = dX.shape
-        if (ndimX == ndimdX):
-            idX_ = np.arange(ndimdX)
-        elif (ndimX != ndimdX):
-            if idX is None:
-                raise ValueError(
-                    "Please specify the index of the dimensions along "
-                    "which the derviatives are taken, e.g. "
-                    "idX=[0, 2] if only the derivatives along the 0th and "
-                    "2nd dimensions are available."
-                    )
-            else:
-                idX_ = idX
-        X_ = X[:, idX_]
 
         if not self.anisotropic_length_scale:
             length_scale = np.array([self.length_scale] * ndimdX)
         else:
             length_scale = self.length_scale
-            
-        if noisy:
-            if not self.anisotropic_noise_level_XdX:
-                noise_level_XdX = np.array([self.noise_level_XdX] * ndimdX)
-            else:
-                noise_level_XdX = self.noise_level_XdX
 
-        K = np.zeros((ndX*ndimdX, nX))
-        (K_grad_const, K_grad_lensc,
-         K_grad_noise, K_grad_noise_dX, K_grad_noise_XdX) =\
-            self._initialize_gradients((ndX*ndimdX, nX))
-        for i in range(len(idX_)):
-            dist = (dX[:, i].reshape(-1, 1) - X_[:, i].reshape(-1, 1).T)
-            coeff = dist / length_scale[i]**2
-            Kij = -self.constant_value * coeff * self._rbf(dX, X_)
+        sel_dims = np.arange(ndimdX)
+        if idX is not None:
+            sel_dims = sel_dims[idX]
+
+        K = np.zeros((ndX*len(sel_dims), nX))
+        (dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX) =\
+            self._initialize_gradients((ndX*len(sel_dims), nX))
+
+        for i, idim in enumerate(sel_dims):
+            dist = (dX[:, idim].reshape(-1, 1) - X[:, idim].reshape(-1, 1).T)
+            coeff = dist / length_scale[idim]**2
+            Kij = -self.constant_value * coeff * self._rbf(dX, X)
             K[i*ndX:(i+1)*ndX, :] = Kij
-            if noisy:
-                K[i*ndX:(i+1)*ndX, :] += noise_level_XdX[i] * np.eye(ndX, nX)
             if eval_gradient:
                 # -- wrt the log of the constant value -- #
                 if not self.hyperparameter_constant_value.fixed:
-                    K_grad_const[i*ndX:(i+1)*ndX, :] = Kij[:, :, np.newaxis]
+                    dK_dconst[i*ndX:(i+1)*ndX, :] = Kij[:, :, np.newaxis]
                 # -- wrt the log of the length scale -- #
                 if not self.hyperparameter_length_scale.fixed:
                     if not self.anisotropic_length_scale:
                         dists2 = cdist(dX / self.length_scale,
-                                       X_ / self.length_scale,
+                                       X / self.length_scale,
                                        metric='sqeuclidean')
-                        d1 = -coeff * dists2 * self._rbf(dX, X_)
+                        d1 = -coeff * dists2 * self._rbf(dX, X)
                         d1 = d1[:, :, np.newaxis]
                         dcoeff = 2*dist / self.length_scale**2
-                        d2 = dcoeff * self._rbf(dX, X_)
+                        d2 = dcoeff * self._rbf(dX, X)
                         d2 = d2[:, :, np.newaxis]
                     else:
-                        dists2 = (dX[:, np.newaxis, :] - X_[np.newaxis, :, :])**2
+                        dists2 = (dX[:, np.newaxis, :] - X[np.newaxis, :, :])**2
                         dists2 /= self.length_scale**2
                         d1 = -coeff[..., np.newaxis] * dists2
-                        d1 = d1 * self._rbf(dX, X_)[..., np.newaxis]
+                        d1 = d1 * self._rbf(dX, X)[..., np.newaxis]
                         dcoeff = np.repeat(dist[..., np.newaxis], len(self.length_scale), axis=2)
                         dcoeff = 2 * dcoeff / self.length_scale**2
-                        d2 = (dcoeff * self._rbf(dX, X_)[..., np.newaxis])
-                    K_grad_lensc[i*ndX:(i+1)*ndX, :] = self.constant_value * (d1 + d2)
-                if noisy and not self.hyperparameter_noise_level_XdX.fixed:
-                    if not self.anisotropic_noise_level_XdX:
-                        noise_grad = self.noise_level_XdX * np.eye(ndX, nX)[:, :, np.newaxis]
-                        K_grad_noise_dX[i*ndX:(i+1)*ndX, :] += noise_grad
-                    else:
-                        noise_grad = self.noise_level_XdX[i] * np.eye(ndX, nX)
-                        K_grad_noise_dX[i*ndX:(i+1)*ndX, :] += noise_grad
+                        d2 = (dcoeff * self._rbf(dX, X)[..., np.newaxis])
+                    dK_dls[i*ndX:(i+1)*ndX, :] = self.constant_value * (d1 + d2)
         if eval_gradient:
-            return K, np.concatenate((K_grad_const,
-                                      K_grad_lensc,
-                                      K_grad_noise,
-                                      K_grad_noise_dX,
-                                      K_grad_noise_XdX), axis=-1)
+            return K, np.concatenate((dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX), axis=-1)
         else:
             return K
 
 
-    def _kernel_hybrid(self, X, dX, idX,
-                       eval_gradient=False):
+    def _kernel_hybrid(self, X, dX, idX, eval_gradient=False):
         if eval_gradient:
-            Kww, Kww_grad = self._cov_ww(dX, noisy=self.noisy_dX, eval_gradient=True)
-            Kwy, Kwy_grad = self._cov_wy(X, dX, idX, eval_gradient=True)
+            Kww, Kww_grad = self._cov_ww(dX, idX=idX, noisy=self.noisy_dX, eval_gradient=True)
+            Kwy, Kwy_grad = self._cov_wy(X, dX, idX=idX, eval_gradient=True)
             Kyy, Kyy_grad = self._cov_yy(X, noisy=self.noisy_X, eval_gradient=True)
             K = np.block([[Kyy, Kwy.T], [Kwy, Kww]])
             K_grad = np.zeros((K.shape[0], K.shape[1], Kyy_grad.shape[2]))
@@ -455,8 +391,8 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                      [Kwy_grad[:, :, i], Kww_grad[:, :, i]]])
             return K, K_grad
         else:
-            Kww = self._cov_ww(dX, noisy=self.noisy_dX)
-            Kwy = self._cov_wy(X, dX, idX)
+            Kww = self._cov_ww(dX, idX=idX, noisy=self.noisy_dX)
+            Kwy = self._cov_wy(X, dX, idX=idX)
             Kyy = self._cov_yy(X, noisy=self.noisy_X)
             K = np.block([[Kyy, Kwy.T], [Kwy, Kww]])
             return K
@@ -464,12 +400,11 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
     def __repr__(self):
         if not self.anisotropic_length_scale:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale={1:.3g})".format(
-                np.sqrt(self.constant_value),
-                np.ravel(self.length_scale)[0])
+            desc = "{0:.3g} * DerivativeRBF(length_scale={1:.3g})".format(
+                self.constant_value, np.ravel(self.length_scale)[0])
         else:
-            desc = "Constant({0:.3g}**2) * RBF(length_scale=[{1}])".format(
-                np.sqrt(self.constant_value),
+            desc = "{0:.3g} * DerivativeRBF(length_scale=[{1}])".format(
+                self.constant_value,
                 ", ".join(map("{0:.3g}".format, self.length_scale)))
         if self.noisy_X:
             desc += " + WhiteKernel_X(noise_level={0:.3g})".format(
@@ -493,40 +428,29 @@ class GPKernelDerAware(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def _initialize_gradients(self, kernel_dims):
         # -- wrt the log of the constant value -- #
         if self.hyperparameter_constant_value.fixed:
-            K_grad_const = np.empty((kernel_dims[0], kernel_dims[1], 0))
+            dK_dconst = np.empty((kernel_dims[0], kernel_dims[1], 0))
         else:
-            K_grad_const = np.zeros((kernel_dims[0], kernel_dims[1], 1))
+            dK_dconst = np.zeros((kernel_dims[0], kernel_dims[1], 1))
         # -- wrt the log of the length scale -- #
         if self.hyperparameter_length_scale.fixed:
-            K_grad_lensc = np.empty((kernel_dims[0], kernel_dims[1], 0))
+            dK_dls = np.empty((kernel_dims[0], kernel_dims[1], 0))
         else:
             if not self.anisotropic_length_scale:
-                K_grad_lensc = np.zeros((kernel_dims[0], kernel_dims[1], 1))
+                dK_dls = np.zeros((kernel_dims[0], kernel_dims[1], 1))
             else:
-                K_grad_lensc = np.zeros((kernel_dims[0], kernel_dims[1],
-                                         len(self.length_scale)))
+                dK_dls = np.zeros((kernel_dims[0], kernel_dims[1], len(self.length_scale)))
         # -- wrt the log of the noise level of X -- #
         if self.hyperparameter_noise_level.fixed:
-            K_grad_noise = np.empty((kernel_dims[0], kernel_dims[1], 0))
+            dK_dnoise = np.empty((kernel_dims[0], kernel_dims[1], 0))
         else:
-            K_grad_noise = np.zeros((kernel_dims[0], kernel_dims[1], 1))
+            dK_dnoise = np.zeros((kernel_dims[0], kernel_dims[1], 1))
         # -- wrt the log of the noise level of dX -- #
         if self.hyperparameter_noise_level_dX.fixed:
-            K_grad_noise_dX = np.empty((kernel_dims[0], kernel_dims[1], 0))
+            dK_dnoisedX = np.empty((kernel_dims[0], kernel_dims[1], 0))
         else:
             if not self.anisotropic_noise_level_dX:
-                K_grad_noise_dX = np.zeros((kernel_dims[0], kernel_dims[1], 1))
+                dK_dnoisedX = np.zeros((kernel_dims[0], kernel_dims[1], 1))
             else:
-                K_grad_noise_dX = np.zeros((kernel_dims[0], kernel_dims[1],
-                                            len(self.noise_level_dX)))
-        # -- wrt the log of the noise level between X and dX -- #
-        if self.hyperparameter_noise_level_XdX.fixed:
-            K_grad_noise_XdX = np.empty((kernel_dims[0], kernel_dims[1], 0))
-        else:
-            if not self.anisotropic_noise_level_XdX:
-                K_grad_noise_XdX = np.zeros((kernel_dims[0], kernel_dims[1], 1))
-            else:
-                K_grad_noise_XdX = np.zeros((kernel_dims[0], kernel_dims[1],
-                                             len(self.noise_level_dX)))
-        return (K_grad_const, K_grad_lensc,
-                K_grad_noise, K_grad_noise_dX, K_grad_noise_XdX)
+                dK_dnoisedX = np.zeros((kernel_dims[0], kernel_dims[1], len(self.noise_level_dX)))
+
+        return (dK_dconst, dK_dls, dK_dnoise, dK_dnoisedX)
