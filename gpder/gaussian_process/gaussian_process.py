@@ -18,26 +18,26 @@ from .kernels.utils import _atleast2d
 __all__ = ['GaussianProcessRegressor']
 
 class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
-    """Gaussian process regressor w/derivative observations.
+    """Gaussian process regressor.
 
     GaussianProcessRegressor is based on scikit-learn's
     GaussianProcessRegressor and Algorithm 2.1 of Gaussian Processes
     for Machine Learning (GPML) by Rasmussen and Williams [1].
 
-    For regular regression, use GPKernel.
-    If derivative information is available, use GPKernelDerAware.
-    GPKernelDerAware is a modified RBF kernel which takes into account
-    derivative information, and is based on [2] and [3].
+    For regular regression, use the kernel GPKernel.
+    If derivative information is available, use the kernel GPKernelDerAware.
+    GPKernelDerAware is a modified RBF kernel that takes into account
+    derivative information, based on [2] and [3].
 
     Parameters
     ----------
     kernel: kernel instance, default=None
         Kernel used in the gaussian process regression (GPR).
         GPKernel is recommended for regular GPR.
-        GPKernelDerAware is recommended for derivative-enhanced GPR.
-        The parameters of the kernel are optimized
+        GPKernelDerAware is recommended for derivative GPR.
+        The hyperparameters of the kernel are optimized
         during fitting unless the bounds are marked as "fixed".
-        The log of the kernel's parameters is stored in the
+        The log of the kernel's hyperparameters is stored in the
         vector 'theta'.
 
     alpha: float or array of shape (n_samples,), default=0
@@ -46,39 +46,38 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         matrtix is positive definitte.
 
     optimizer: "fmin_l_bfgs_b" or callable, default="fmin_l_bfgs_b"
-        Optimizing function for the kernel's parameters.
+        Optimizing function for the kernel's hyperparameters.
         If "fmin_l_bfgs_b", the 'L-BGFS-B' method from
         scipy.optimize.minimize is used. If 'None' is passed, the
         parameters values are kept fixed and no optimization is done.
         Alternatively, a custom optimizer can be passed as a callable.
 
     n_restarts_optimizer: int, default=0
-        Number of times to restart the optimizer which finds the
-        optimal kernel parameters by minimizing the neg
-        log-marginal likelihood. The first run of the optimizer is
-        initialized on the initial parameters values. Subsequent runs
-        (if n_restarts_optimizer > 0) are initialized on values
-        sampled randomly from a log-uniform distribution with bounds
-        equal to the parameter bounds.
+        Number of times to restart the optimizer.
+        The first run of the optimizer is initialized on the initial
+        parameters values. Subsequent runs (if n_restarts_optimizer > 0)
+        are initialized on values sampled randomly from a log-uniform
+        distribution with bounds equal to the parameter bounds.
         All parameter bounds must be finite.
+
+    random_state: int, RandomState instance or None, default=None
+        Determines the random number generator used in the optimizer.
+        For reproducible results, pass an int to be used as the random
+        state seeed.
 
     mean: float or callable, default=0
         Mean function. If float, the mean is assumed to be constant and
-        to take the given value.
+        to take the given float value.
 
     dmean: float or callable, default=0
         Mean function of the derivative observations.
         If float, the mean is assumed to be constant and to take the
-        given value.
+        given float value.
 
     copy_data: bool, default=True
         If true, a copy of the training data is stored in the object.
         Else, a reference to the training data is stored.
 
-    random_state: int, RandomState instance or None, default=None
-        Determines the random number generator used to initialize
-        the centers. For reproducible results, pass an int to be used
-        as the random state seeed.
 
     Attributes
     ----------
@@ -125,8 +124,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     """
 
     def __init__(self, kernel=None, alpha=0, optimizer="fmin_l_bfgs_b",
-                 n_restarts_optimizer=10, mean=0, dmean=0, copy_data=True,
-                 random_state=None):
+                 n_restarts_optimizer=10, random_state=None,
+                 mean=0, dmean=0, copy_data=True):
         self.kernel = kernel
         self.alpha = alpha
         self.optimizer = optimizer
@@ -142,15 +141,15 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         Parameters
         ----------
         X: array of shape (nsamples, nfeat)
-            Coordinates of the training function observation points.
+            Coordinates of the training observation points.
 
         y: array of shape (nsamples,)
             Target values observed at 'X'.
 
         dX: array of shape (dnsamples, ndfeat), default=None
-            Coordinates of the training derivative observation points.
-            If only derivative information is available for some dimensions,
-            idX can be used to especify the index of such dimensions.
+            Coordinates of the training derivative points.
+            If derivative information is available in some dimensions,
+            use idX to especify the index of such dimensions.
 
         dy: array of shape (dnsamples, ndfeat), default=None
             Partial derivatives of the target values observed at 'dX'.

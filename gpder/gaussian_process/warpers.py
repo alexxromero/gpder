@@ -88,6 +88,9 @@ class GPWarper(GaussianProcessRegressor):
         if self._transform_type == "log":
             return np.log(y)
         elif self._transform_type == "squareroot":
+            y_lr = y < self._alpha_warp
+            if np.any(y_lr):
+                raise ValueError("y less than alpha_warp. Try decreasing it.")
             return np.sqrt(2 * (y - self._alpha_warp))
 
     def _transform_obs_back(self, y, std=1):

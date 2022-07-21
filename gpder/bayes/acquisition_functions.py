@@ -15,14 +15,14 @@ class AcquisitionFunction():
         else:
             self.kind = kind
 
-    def utility(self, X, Xpred, gp, freeze_params=True, batch_size=None):
+    def utility(self, X, X_query, gp, freeze_params=True, batch_size=None):
         if self.kind=='trace':
-            return self.expected_cov_trace(X, Xpred, gp,
+            return self.expected_cov_trace(X, X_query, gp,
                                            freeze_params, batch_size)
         # elif self.kind=='det':
-        #     return self.expected_cov_det(X, Xpred, gp)
+        #     return self.expected_cov_det(X, X_query, gp)
 
-    def _expected_cov(X, Xpred, gp, freeze_params):
+    def _expected_cov(X, X_query, gp, freeze_params):
         gp_temp = deepcopy(gp)
         if freeze_params:
             gp_temp.optimizer=None
@@ -38,47 +38,47 @@ class AcquisitionFunction():
         else:
             gp_temp.fit(X=X_temp, y=y_temp)
         if hasattr(gp, 'warped'):
-            _, cov = gp_temp.predict_latent(Xpred, return_cov=True)
+            _, cov = gp_temp.predict_latent(X_query, return_cov=True)
         else:
-            _, cov = gp_temp.predict(Xpred, return_cov=True)
+            _, cov = gp_temp.predict(X_query, return_cov=True)
         return cov
 
-    def _current_cov(Xpred, gp, freeze_params):
+    def _current_cov(X_query, gp, freeze_params):
         gp_current = deepcopy(gp)
         if freeze_params:
             gp_current.optimizer=None
         if hasattr(gp, 'warped'):
-            _, cov = gp_current.predict_latent(Xpred, return_cov=True)
+            _, cov = gp_current.predict_latent(X_query, return_cov=True)
         else:
-            _, cov = gp_current.predict(Xpred, return_cov=True)
+            _, cov = gp_current.predict(X_query, return_cov=True)
         return cov
 
     # @staticmethod
-    # def expected_cov_det(X, Xpred, gp):
-    #     exp_det = np.linalg.det(AcquisitionFunction._expected_cov(X, Xpred, gp))
-    #     current_det = np.linalg.det(AcquisitionFunction._current_cov(Xpred, gp))
+    # def expected_cov_det(X, X_query, gp):
+    #     exp_det = np.linalg.det(AcquisitionFunction._expected_cov(X, X_query, gp))
+    #     current_det = np.linalg.det(AcquisitionFunction._current_cov(X_query, gp))
     #     return 1 - exp_det / current_det
 
     @staticmethod
-    def expected_cov_trace(X, Xpred, gp, freeze_params=True, batch_size=None):
+    def expected_cov_trace(X, X_query, gp, freeze_params=True, batch_size=None):
         if batch_size is not None:
-            nbatches = int(Xpred.shape[0] / batch_size)
-            if Xpred.shape[0] % batch_size > 0:
+            nbatches = int(X_query.shape[0] / batch_size)
+            if X_query.shape[0] % batch_size > 0:
                 nbatches +=1
             exp_trace, current_trace = 0, 0
             for i in range(nbatches):
-                Xpred_batch = Xpred[i*batch_size : (i+1)*batch_size]
+                X_query_batch = X_query[i*batch_size : (i+1)*batch_size]
                 exp_trace += np.trace(
-                    AcquisitionFunction._expected_cov(X, Xpred_batch, gp, freeze_params)
+                    AcquisitionFunction._expected_cov(X, X_query_batch, gp, freeze_params)
                     )
                 current_trace += np.trace(
-                    AcquisitionFunction._current_cov(Xpred_batch, gp, freeze_params)
+                    AcquisitionFunction._current_cov(X_query_batch, gp, freeze_params)
                     )
         else:
             exp_trace = np.trace(
-                AcquisitionFunction._expected_cov(X, Xpred, gp, freeze_params)
+                AcquisitionFunction._expected_cov(X, X_query, gp, freeze_params)
                 )
             current_trace = np.trace(
-                AcquisitionFunction._current_cov(Xpred, gp, freeze_params)
+                AcquisitionFunction._current_cov(X_query, gp, freeze_params)
                 )
         return 1 - exp_trace / current_trace

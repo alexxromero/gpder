@@ -1,7 +1,10 @@
 import numpy as np
 
 def _atleast2d(arr):
-    if np.ndim(arr) < 2:
-        return np.array(arr).reshape(-1, 1)
+    arr = np.asarray(arr)
+    if arr.ndim == 0:
+        return arr.reshape(-1, 1)
+    elif arr.ndim == 1:
+        return arr[:, np.newaxis]
     else:
-        return np.array(arr)
+        return arr

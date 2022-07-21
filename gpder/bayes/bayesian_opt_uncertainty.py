@@ -9,6 +9,7 @@ import copy
 
 from ..gaussian_process import GaussianProcessRegressor
 from ..gaussian_process.kernels import GPKernel, GPKernelDerAware
+from ..gaussian_process.kernels.utils import _atleast2d
 from .bayesian_opt_utils import print_log
 from .acquisition_functions import AcquisitionFunction
 
@@ -30,9 +31,9 @@ class GPlog():
         return self.instances[items]
 
 class BayesUncertaintyOptimization():
-    """BayesUncertaintyOptimization performs a Bayesian Optimization
-    to estimate the next optimal sampling point for a Gaussian Process
-    model.
+    """BayesUncertaintyOptimization performs Bayesian Optimization
+    to find the next optimal sampling point to minimize the overall
+    predictive variance of a Gaussian Process model.
 
     Parameters
     ----------
@@ -82,7 +83,7 @@ class BayesUncertaintyOptimization():
 
     def minimize_uncertainty(self,
                              X_init, y_init,
-                             X_opt,
+                             X_query,
                              dX_init=None, dy_init=None,
                              acquisition_opt='trace',
                              batch_size=None,
@@ -101,7 +102,7 @@ class BayesUncertaintyOptimization():
         y_init: ndarray of shape (ninit,)
             Values of the initial function observations evaluated at 'X_train'.
 
-        X_opt: ndarray of shape(nopt, nparams)
+        X_query: ndarray of shape(nopt, nparams)
             Coordinates of the function observations that will be used to
             estimate the expected uncertainty of the model.
 
@@ -140,7 +141,7 @@ class BayesUncertaintyOptimization():
 
         self.X_init, self.y_init = X_init, y_init
         self.dX_init, self.dy_init = dX_init, dy_init
-        self.X_opt = X_opt
+        self.X_query = X_query
         self.acquisition_opt = acquisition_opt
         self.batch_size = batch_size
         self.n_iters = n_iters
@@ -153,7 +154,7 @@ class BayesUncertaintyOptimization():
         if self._has_derinfo:
             if (self.dX_init is not None) and (self.dy_init is not None):
                 self.dX_train = self.dX_init
-                self.dy_train = self.dy_init
+                self.dy_train = _atleast2d(self.dy_init)
             else:
                 raise ValueError(
                     "dX_train and dy_train must be passed if using "
@@ -210,11 +211,13 @@ class BayesUncertaintyOptimization():
         for X in dX_arr:
             X_dict = dict(zip(self._X_keys, X))
             y_arr.append(self.dfun(**X_dict))
-        return np.asarray(y_arr).reshape(-1, self._nparams)
+        #return np.asarray(y_arr).reshape(-1, self._nparams
+        return _atleast2d(y_arr)
+
 
     def _find_next_X(self, n_restarts):
         def neg_acquisition_fun(X):
-            return -1 * self._acq.utility(X, Xpred=self.X_opt, gp=self.gp,
+            return -1 * self._acq.utility(X, X_query=self.X_query, gp=self.gp,
                                           batch_size=self.batch_size)
 
         best_x = None
