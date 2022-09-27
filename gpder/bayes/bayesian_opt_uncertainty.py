@@ -85,7 +85,6 @@ class BayesUncertaintyOptimization():
                              X_init, y_init,
                              X_query,
                              dX_init=None, dy_init=None,
-                             acquisition_opt='trace',
                              batch_size=None,
                              n_iters=10,
                              minimizer='fmin_l_bfgs_b',
@@ -113,10 +112,6 @@ class BayesUncertaintyOptimization():
             Values of the initial function derivative observations
             evaluated at 'dX_train'.
 
-        acquisition_opt: string, default='trace'
-            Measure of the global uncertainty to minimize.
-             Options: {'trace', 'determinant'}
-
         batch_size: int, default=None
             Batch size
 
@@ -142,7 +137,6 @@ class BayesUncertaintyOptimization():
         self.X_init, self.y_init = X_init, y_init
         self.dX_init, self.dy_init = dX_init, dy_init
         self.X_query = X_query
-        self.acquisition_opt = acquisition_opt
         self.batch_size = batch_size
         self.n_iters = n_iters
         self.minimizer = minimizer
@@ -174,7 +168,7 @@ class BayesUncertaintyOptimization():
         self._gp_record = GPlog()
         self._gp_record.add_gp(self.gp)
         self._n_init = np.shape(self.X_train)[0]
-        self._acq = AcquisitionFunction(kind=self.acquisition_opt)
+        self._acq = AcquisitionFunction()
 
         if self.verbose:
             print_log(self._X_keys, self.X_init, self.y_init,
@@ -214,10 +208,26 @@ class BayesUncertaintyOptimization():
         #return np.asarray(y_arr).reshape(-1, self._nparams
         return _atleast2d(y_arr)
 
+    def _get_trace_sigma_query(self):
+        if self.batch_size is not None:
+            nbatches = int(self.X_query.shape[0] / batch_size)
+            if self.X_query.shape[0] % self.batch_size > 0:
+                nbatches +=1
+            trace = 0
+            for i in range(nbatches):
+                X_query_batch = self.X_query[i*self.batch_size : (i+1)*self.batch_size]
+                _, cov = self.gp.predict(X_query_batch, return_cov=True)
+                trace += np.trace(cov)
+        else:
+            _, cov = self.gp.predict(self.X_query, return_cov=True)
+            trace = np.trace(cov)
+        return trace
 
     def _find_next_X(self, n_restarts):
+        self._trace_sigma_query = self._get_trace_sigma_query()
         def neg_acquisition_fun(X):
             return -1 * self._acq.utility(X, X_query=self.X_query, gp=self.gp,
+                                          trace_sigma_query=self._trace_sigma_query,
                                           batch_size=self.batch_size)
 
         best_x = None
