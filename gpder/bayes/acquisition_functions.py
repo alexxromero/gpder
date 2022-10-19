@@ -8,12 +8,18 @@ class AcquisitionFunction():
     """Acquisition function for the BayesUncertaintyOptimization class.
     """
 
-    def __init__(self):
+    def __init__(self, type="trace"):
+        self.type = type
 
     def utility(self, X, X_query, gp, trace_sigma_query, batch_size=None):
-        return self.expected_cov_trace(
-            X, X_query, trace_sigma_query, gp, batch_size
-            )
+        if self.type=="trace":
+            return self.expected_cov_trace(
+                X, X_query, gp, trace_sigma_query, batch_size
+                )
+        elif self.type=="det":
+            return self.expected_cov_det(X, X_query, gp)
+        else:
+            raise ValueError("Only 'trace' and 'det' utility types are supported.")
 
     def _expected_cov(X, X_query, gp):
         gp_temp = deepcopy(gp)
@@ -45,10 +51,17 @@ class AcquisitionFunction():
             for i in range(nbatches):
                 X_query_batch = X_query[i*batch_size : (i+1)*batch_size]
                 exp_trace += np.trace(
-                    AcquisitionFunction._expected_cov(X, X_query_batch, gp, freeze_params)
+                    AcquisitionFunction._expected_cov(X, X_query_batch, gp)
                     )
         else:
             exp_trace = np.trace(
-                AcquisitionFunction._expected_cov(X, X_query, gp, freeze_params)
+                AcquisitionFunction._expected_cov(X, X_query, gp)
                 )
         return 1 - exp_trace / current_trace
+
+    @staticmethod
+    def expected_cov_det(X, X_query, gp):
+        exp_trace = np.linalg.det(
+            AcquisitionFunction._expected_cov(X, X_query, gp)
+            )
+        return -np.log(det)
