@@ -16,5 +16,5 @@ classifiers = [
 ]
 
 [project.urls]
-#
-#
+Homepage = "https://github.com/alexxromero/gpder"
+Issues = "https://github.com/alexxromero/gpder/issues"
