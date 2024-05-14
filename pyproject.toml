@@ -1,20 +1,24 @@
 [build-system]
-requires=["hatchling"]
-build-backend="hatchling.build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
-name="gpder"
-version="0.1.0"
-authors=[{name="Alexis Romero", email="alexir2@uci.edu"}]
-description="Bayesian Experimental Design for Minimizing the Uncertainty of Gaussian Processes"
-readme="README.md"
-requires-python=">=3.6"
+name = "gpder"
+version = "0.1.0"
+authors = [{name="Alexis Romero", email="alexir2@uci.edu"}]
+description = "Bayesian Experimental Design for Minimizing the Uncertainty of Gaussian Processes"
+readme = "README.md"
+requires-python = ">=3.6"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-learn"]
 
 [project.urls]
-Homepage="https://github.com/alexxromero/gpder"
-Issues="https://github.com/alexxromero/gpder/issues"
+Homepage = "https://github.com/alexxromero/gpder"
+Issues = "https://github.com/alexxromero/gpder/issues"
