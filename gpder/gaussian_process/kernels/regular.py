@@ -40,7 +40,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         If 'fixed', the length_scale parameter is not changed during
         hyperparameter tunning.
 
-    noise_level: float or None, default=1.0
+    noise_level: float or None, default=0.01
         Square root if the variance of the added white noise.
 
     noise_level_bounds: 'fixed' or pair of floats > 0, default=(1e-5, 1e5)

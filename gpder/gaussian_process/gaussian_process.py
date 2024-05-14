@@ -324,7 +324,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             std2 = np.copy(np.diag(kernel_star))
             std2 -= np.einsum("ij,ij->i", np.dot(posterior_cov, K_inv), posterior_cov)
             std2[std2 < 0] = 0.0
-            y_std = np.sqrt(std2)
+            y_std = atleast_2d(np.sqrt(std2))
         if return_cov:
             v = scipy.linalg.cho_solve((self._L_cholevsky, True), posterior_cov.T)
             y_cov = kernel_star - posterior_cov.dot(v)
@@ -393,7 +393,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             std2 = np.copy(np.diag(kernel_star))
             std2 -= np.einsum("ij,ij->i", np.dot(posterior_cov, K_inv), posterior_cov)
             std2[std2 < 0] = 0.0
-            dy_std = np.sqrt(std2)
+            dy_std = atleast_2d(np.sqrt(std2))
         if return_cov:
             v = scipy.linalg.cho_solve((self._L_cholevsky, True), posterior_cov.T)
             dy_cov = kernel_star - posterior_cov.dot(v)
@@ -625,9 +625,9 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                         i * n_ndX : (i + 1) * n_ndX, :
                     ]
                     cov_wy[low : low + n_odX, -n_nX:] = cov_wy_odX_nX[
-                        i * n_oX : (i + 1) * n_oX, :
+                        i * n_odX : (i + 1) * n_odX, :
                     ]
-                    cov_wy[low + n_odX + n_ndX :, -n_nX:] = cov_wy_ndX_nX[
+                    cov_wy[low + n_odX : low + n_odX + n_ndX :, -n_nX:] = cov_wy_ndX_nX[
                         i * n_ndX : (i + 1) * n_ndX, :
                     ]
                 # derivative covariance (w, w)

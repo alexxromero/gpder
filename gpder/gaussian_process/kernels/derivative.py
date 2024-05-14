@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.special import kv
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.gaussian_process.kernels import StationaryKernelMixin
 from sklearn.gaussian_process.kernels import NormalizedKernelMixin
