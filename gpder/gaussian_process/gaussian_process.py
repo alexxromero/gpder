@@ -542,7 +542,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     def sample(self, X, n_draws=1, random_state=None):
         """Draw samples from the predictive distribution.
-        
+
         Parameters
         ----------
         X : ndarray, shape (n_samples, n_features)
@@ -566,7 +566,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     def sample_gradients(self, dX, n_draws=1, random_state=None):
         """Draw samples from the predictive distribution of the gradients.'
-        
+
         Parameters
         ----------
         dX : ndarray, shape (n_samples, n_features)
@@ -589,7 +589,9 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         for i in range(self._n_dims_der):
             start = i * len(dX)
             end = (i + 1) * len(dX)
-            dy_samples[:, start:end] = rng.multivariate_normal(dy_mean[start:end].ravel(), dy_cov[start:end, start:end], n_draws)
+            dy_samples[:, start:end] = rng.multivariate_normal(
+                dy_mean[start:end].ravel(), dy_cov[start:end, start:end], n_draws
+            )
         return dy_samples
 
     def _expand_training_covariance(self, X_new=None, dX_new=None):
@@ -757,30 +759,50 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 y_chol_new = y_new - self._mean_func(X_new)
                 dy_chol_new = dy_new - self._der_mean_func(dX_new)
                 dy_chol_new = dy_chol_new.reshape(-1, self.y_train.shape[1], order="F")
-                y_cholesky = np.zeros((len(self._y_cholesky) + n_nX + n_ndX * self._n_dims_der, self.y_train.shape[1]))
+                y_cholesky = np.zeros(
+                    (
+                        len(self._y_cholesky) + n_nX + n_ndX * self._n_dims_der,
+                        self.y_train.shape[1],
+                    )
+                )
                 y_cholesky[:n_oX] = self._y_cholesky[:n_oX]
-                y_cholesky[n_oX:n_oX+n_nX] = y_chol_new
+                y_cholesky[n_oX : n_oX + n_nX] = y_chol_new
                 for i in range(self._n_dims_der):
-                    low = n_oX+n_nX + i * (n_odX + n_ndX)
-                    y_cholesky[low:low+n_odX] = self._y_cholesky[n_oX+i*n_odX:n_oX+(i+1)*n_odX]
-                    y_cholesky[low+n_odX:low+n_odX+n_ndX] = dy_chol_new[i*n_ndX:(i+1)*n_ndX]
+                    low = n_oX + n_nX + i * (n_odX + n_ndX)
+                    y_cholesky[low : low + n_odX] = self._y_cholesky[
+                        n_oX + i * n_odX : n_oX + (i + 1) * n_odX
+                    ]
+                    y_cholesky[low + n_odX : low + n_odX + n_ndX] = dy_chol_new[
+                        i * n_ndX : (i + 1) * n_ndX
+                    ]
             elif X_new is not None:
                 n_nX = X_new.shape[0]
                 y_chol_new = y_new - self._mean_func(X_new)
-                y_cholesky = np.zeros((len(self._y_cholesky) + len(X_new), self.y_train.shape[1]))
+                y_cholesky = np.zeros(
+                    (len(self._y_cholesky) + len(X_new), self.y_train.shape[1])
+                )
                 y_cholesky[:n_oX] = self._y_cholesky[:n_oX]
-                y_cholesky[n_oX:n_oX+n_nX] = y_chol_new
-                y_cholesky[n_oX+n_nX:] = self._y_cholesky[n_oX:]
+                y_cholesky[n_oX : n_oX + n_nX] = y_chol_new
+                y_cholesky[n_oX + n_nX :] = self._y_cholesky[n_oX:]
             elif dX_new is not None:
                 n_ndX = dX_new.shape[0]
                 dy_chol_new = dy_new - self._der_mean_func(dX_new)
                 dy_chol_new = dy_chol_new.reshape(-1, self.y_train.shape[1], order="F")
-                y_cholesky = np.zeros((len(self._y_cholesky) + n_ndX * self._n_dims_der, self.y_train.shape[1]))
+                y_cholesky = np.zeros(
+                    (
+                        len(self._y_cholesky) + n_ndX * self._n_dims_der,
+                        self.y_train.shape[1],
+                    )
+                )
                 y_cholesky[:n_oX] = self._y_cholesky[:n_oX]
                 for i in range(self._n_dims_der):
                     low = n_oX + i * (n_odX + n_ndX)
-                    y_cholesky[low:low+n_odX] = self._y_cholesky[n_oX+i*n_odX:n_oX+(i+1)*n_odX]
-                    y_cholesky[low+n_odX:low+n_odX+n_ndX] = dy_chol_new[i*n_ndX:(i+1)*n_ndX]
+                    y_cholesky[low : low + n_odX] = self._y_cholesky[
+                        n_oX + i * n_odX : n_oX + (i + 1) * n_odX
+                    ]
+                    y_cholesky[low + n_odX : low + n_odX + n_ndX] = dy_chol_new[
+                        i * n_ndX : (i + 1) * n_ndX
+                    ]
         else:
             y_chol_new = y_new - self._mean_func(X_new)
             y_cholesky = np.concatenate((self._y_cholesky, y_chol_new), axis=0)

@@ -33,7 +33,7 @@ class PrintLog:
 
 class NetVarianceLoss:
     """The NetVarianceLoss class computes the net loss in the
-    predictive variance of a GP model if a new training sample were 
+    predictive variance of a GP model if a new training sample were
     to be added at input X.
 
     Parameters
@@ -154,7 +154,7 @@ class GPUncertaintyOptimizer:
         batch_size=512,
     ):
         """Minimize the net predictive variance of the GP model.
-        
+
         Parameters
         ----------
         X_util : array-like, shape (n_samples_util, n_features)
@@ -247,22 +247,29 @@ class GPUncertaintyOptimizer:
             X_util = self.X_util + self.added_noise(self.X_util)
         else:
             raise ValueError("Invalid noise type.")
-        
+
         for i in range(self._param_dim):
             lt_ix = X_util[:, i] < self._param_bounds[i, 0]
-            X_util[lt_ix, i] = self._param_bounds[i, 1] - np.abs(X_util[lt_ix, i] - self._param_bounds[i, 0])
+            X_util[lt_ix, i] = self._param_bounds[i, 1] - np.abs(
+                X_util[lt_ix, i] - self._param_bounds[i, 0]
+            )
             gt_ix = X_util[:, i] > self._param_bounds[i, 1]
-            X_util[gt_ix, i] = self._param_bounds[i, 0] + np.abs(X_util[gt_ix, i] - self._param_bounds[i, 1])
-            
+            X_util[gt_ix, i] = self._param_bounds[i, 0] + np.abs(
+                X_util[gt_ix, i] - self._param_bounds[i, 1]
+            )
+
         self._X_util_temp = X_util
-    
+
         norm = self._current_net_variance()
 
         if self.acquisition_function == NetVarianceLoss:
             acq = NetVarianceLoss(self.gp_model, X_util, norm)
+
             def neg_acq_fun(X):
                 return -acq.utility(X)
+
         else:
+
             def neg_acq_fun(*args, **kwargs):
                 return -self.acquisition_function(*args, **kwargs)
 

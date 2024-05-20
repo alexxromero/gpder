@@ -297,14 +297,18 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                     K[
                         i * n_samples_dX : (i + 1) * n_samples_dX,
                         j * n_samples_dY : (j + 1) * n_samples_dY,
-                    ] += noise_level_der[i_dim]**2 * np.eye(n_samples_dX, n_samples_dY)
+                    ] += noise_level_der[i_dim] ** 2 * np.eye(
+                        n_samples_dX, n_samples_dY
+                    )
                 if eval_gradient:
                     # with respect to the amplitude parameter
                     if not self.hyperparameter_amplitude.fixed:
                         dK_damplitude[
                             i * n_samples_dX : (i + 1) * n_samples_dX,
                             j * n_samples_dY : (j + 1) * n_samples_dY,
-                        ] = (2 * amplitude * coeff * self._rbf(dX, dy))[:, :, np.newaxis]
+                        ] = (2 * amplitude * coeff * self._rbf(dX, dy))[
+                            :, :, np.newaxis
+                        ]
                     # with respect to the length_scale parameter
                     if not self.hyperparameter_length_scale.fixed:
                         if not self.anisotropic_length_scale:
@@ -342,7 +346,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                     if add_noise and not self.hyperparameter_noise_level_der.fixed:
                         if i_dim == j_dim:
                             if not self.anisotropic_noise_level_der:
-                                noise_grad = noise_level_der[i_dim]**2 * np.eye(
+                                noise_grad = noise_level_der[i_dim] ** 2 * np.eye(
                                     n_samples_dX, n_samples_dY
                                 )
                                 dK_dnoise_level_der[
@@ -350,7 +354,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                                     j * n_samples_dY : (j + 1) * n_samples_dY,
                                 ] = noise_grad[..., np.newaxis]
                             else:
-                                noise_grad = noise_level_der[i_dim]**2 * np.eye(
+                                noise_grad = noise_level_der[i_dim] ** 2 * np.eye(
                                     n_samples_dX, n_samples_dY
                                 )
                                 dK_dnoise_level_der[
@@ -399,9 +403,9 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 # with respect to the amplitude parameter
                 if not self.hyperparameter_amplitude.fixed:
                     dK_i_amp = -2.0 * amplitude * dist_i_scl * self._rbf(dX, Y)
-                    dK_damplitude[i * n_samples_dX : (i + 1) * n_samples_dX, :] = dK_i_amp[
-                        :, :, np.newaxis
-                    ]
+                    dK_damplitude[i * n_samples_dX : (i + 1) * n_samples_dX, :] = (
+                        dK_i_amp[:, :, np.newaxis]
+                    )
                 # with respect to the length_scale parameter
                 if not self.hyperparameter_length_scale.fixed:
                     if not self.anisotropic_length_scale:
