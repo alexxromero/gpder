@@ -208,8 +208,12 @@ class TestGaussianProcessRegressor(unittest.TestCase):
 
 class TestGPIntegration(unittest.TestCase):
     def setUp(self):
-        self.regular_gp = GaussianProcessRegressor(kernel=RegularKernel())
-        self.derivative_gp = GaussianProcessRegressor(kernel=DerivativeKernel())
+        reg_kernel = RegularKernel(amplitude=1, length_scale=2, noise_level=3)
+        der_kernel = DerivativeKernel(
+            amplitude=1, length_scale=2, noise_level=3, noise_level_der=4
+        )
+        self.regular_gp = GaussianProcessRegressor(kernel=reg_kernel)
+        self.derivative_gp = GaussianProcessRegressor(kernel=der_kernel)
         # dummy data for testing
         self.X_train = np.random.uniform(0, 1, (5, 3))
         self.y_train = np.random.normal(0, 1, (5, 1))
@@ -222,18 +226,9 @@ class TestGPIntegration(unittest.TestCase):
         amplitude = self.regular_gp.kernel.amplitude
         length_scale = self.regular_gp.kernel.length_scale
         noise_level = self.regular_gp.kernel.noise_level
-        self.assertTrue(
-            (amplitude > self.regular_gp.kernel.amplitude_bounds[0])
-            & (amplitude < self.regular_gp.kernel.amplitude_bounds[1])
-        )
-        self.assertTrue(
-            (length_scale > self.regular_gp.kernel.length_scale_bounds[0])
-            & (length_scale < self.regular_gp.kernel.length_scale_bounds[1])
-        )
-        self.assertTrue(
-            (noise_level > self.regular_gp.kernel.amplitude_bounds[0])
-            & (noise_level < self.regular_gp.kernel.amplitude_bounds[1])
-        )
+        self.assertNotEqual(amplitude, 1)
+        self.assertNotEqual(length_scale, 2)
+        self.assertNotEqual(noise_level, 3)
 
         self.derivative_gp.n_restarts_optimizer = 10
         self.derivative_gp.fit(self.X_train, self.y_train, self.X_train, self.dy_train)
@@ -241,22 +236,10 @@ class TestGPIntegration(unittest.TestCase):
         length_scale = self.derivative_gp.kernel.length_scale
         noise_level = self.derivative_gp.kernel.noise_level
         noise_level_der = self.derivative_gp.kernel.noise_level_der
-        self.assertTrue(
-            (amplitude > self.derivative_gp.kernel.amplitude_bounds[0])
-            & (amplitude < self.derivative_gp.kernel.amplitude_bounds[1])
-        )
-        self.assertTrue(
-            (length_scale > self.derivative_gp.kernel.length_scale_bounds[0])
-            & (length_scale < self.derivative_gp.kernel.length_scale_bounds[1])
-        )
-        self.assertTrue(
-            (noise_level > self.derivative_gp.kernel.amplitude_bounds[0])
-            & (noise_level < self.derivative_gp.kernel.amplitude_bounds[1])
-        )
-        self.assertTrue(
-            (noise_level_der > self.derivative_gp.kernel.amplitude_bounds[0])
-            & (noise_level_der < self.derivative_gp.kernel.amplitude_bounds[1])
-        )
+        self.assertNotEqual(amplitude, 1)
+        self.assertNotEqual(length_scale, 2)
+        self.assertNotEqual(noise_level, 3)
+        self.assertNotEqual(noise_level_der, 4)
 
     def test_noise_level(self):
         kernel_high_noise = RegularKernel(amplitude=1, length_scale=1, noise_level=10.0)
