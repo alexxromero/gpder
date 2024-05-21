@@ -19,6 +19,12 @@ dependencies = [
     "scipy==1.13.0",
     "scikit-learn==1.4.2"]
 
+[tool.hatch.envs.default]
+dependencies = [
+    "numpy==1.26.4",
+    "scipy==1.13.0",
+    "scikit-learn==1.4.2"]
+
 [project.urls]
 Homepage = "https://github.com/alexxromero/gpder"
 Issues = "https://github.com/alexxromero/gpder/issues"
