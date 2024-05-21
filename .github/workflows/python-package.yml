@@ -29,9 +29,9 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         pip install hatch
-    - name: Create and activate the virtual environment
+      - name: Create and activate virtual environment
       run: |
-        hatch env activate
+        hatch env create
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
