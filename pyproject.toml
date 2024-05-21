@@ -15,15 +15,18 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy==1.26.4",
-    "scipy==1.13.0",
-    "scikit-learn==1.4.2"]
+    "numpy",
+    "scipy",
+    "scikit-learn"]
 
 [tool.hatch.envs.default]
 dependencies = [
-    "numpy==1.26.4",
-    "scipy==1.13.0",
-    "scikit-learn==1.4.2"]
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "pytest",
+    "pytest-cov"
+    ]
 
 [project.urls]
 Homepage = "https://github.com/alexxromero/gpder"
