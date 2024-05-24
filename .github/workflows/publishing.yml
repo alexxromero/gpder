@@ -1,0 +1,58 @@
+# This workflow will publish a Python package to test PyPI when a new release is created
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/publishing-python-packages
+
+name: Publishing Python package - test PyPI
+
+on:
+  release:
+    types: [created]
+
+jobs:
+    build:
+    
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ["3.9", "3.10", "3.11"]
+    
+        steps:
+        - uses: actions/checkout@v3
+        - name: Set up Python ${{ matrix.python-version }}
+          uses: actions/setup-python@v3
+          with:
+            python-version: ${{ matrix.python-version }}
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            python -m pip install pytest
+            pip install hatch
+        - name: Create and activate virtual environment
+          run: |
+            hatch env create
+        - name: Test with pytest
+          run: |
+            # for good measure, run tests again
+            hatch env run pytest
+    
+    publish:
+    
+        runs-on: ubuntu-latest
+        environment: testpypi
+        needs: [build]
+        permissions:
+          id-token: write
+        steps:
+        - uses: actions/checkout@v3
+        - name: Set up Python 3.11
+          uses: actions/setup-python@v3
+          with:
+            python-version: 3.11
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            python -m pip install hatch
+        - name: Build and publish
+          run: |
+            hatch build 
+            hatch publish --repo test
