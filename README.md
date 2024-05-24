@@ -11,7 +11,7 @@ The following kernels can be used:
 
 - DerivativeKernel: Kernel for GP regression with derivative observations. Has the same form as the regular kernel but the covariance term is expanded to include derivative observations. The added noise is also expanded with the derivative noise parameter $\sigma^2_{\nabla}$.
 
-    $k(\bm{x}_i, \bm{x}_j) = \alpha^2 \mathrm{exp} \left( -\frac{\mid \mid \bm{x}_i - \bm{x}_j \mid \mid^2 }{2\bm{\ell}^2} \right) _{\mathrm{expanded}} + \sigma^2 _{\mathrm{expanded}} I$
+    $k({x}_i, {x}_j) = \alpha^2 \mathrm{exp} \left( -\frac{\mid \mid {x}_i - {x}_j \mid \mid^2 }{2{\ell}^2} \right) _{\mathrm{expanded}} + \sigma^2 _{\mathrm{expanded}} I$
 
 
 See PAPER.
