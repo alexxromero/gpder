@@ -212,7 +212,7 @@ class GPUncertaintyOptimizer:
         if self.verbose:
             plog = PrintLog(self._param_keys)
             plog.update_log(X=self.X_init, y=self.y_init, iter=0)
-
+  
         for i in range(self.n_iters):
             X_next, _ = self._find_next()
             y_next = self.function(X_next).reshape(1, 1)
@@ -276,7 +276,7 @@ class GPUncertaintyOptimizer:
         X0 = self.random_state.uniform(
             self._param_bounds[:, 0],
             self._param_bounds[:, 1],
-            size=(1, self._param_dim),
+            size=(self._param_dim,),
         )
         X_opt, min_neg_util = self._optimize_acq_fun(
             neg_acq_fun, X0, self.acquisition_function_args
@@ -286,7 +286,7 @@ class GPUncertaintyOptimizer:
                 X0 = self.random_state.uniform(
                     self._param_bounds[:, 0],
                     self._param_bounds[:, 1],
-                    size=(1, self._param_dim),
+                    size=(self._param_dim,),
                 )
                 X, neg_util = self._optimize_acq_fun(
                     neg_acq_fun, X0, self.acquisition_function_args
