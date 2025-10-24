@@ -14,7 +14,7 @@ The following kernels can be used:
     $k({x}_i, {x}_j) = \alpha^2 \mathrm{exp} \left( -\frac{\mid \mid {x}_i - {x}_j \mid \mid^2 }{2{\ell}^2} \right) _{\mathrm{expanded}} + \sigma^2 _{\mathrm{expanded}} I$
 
 
-See PAPER.
+See "Efficient Estimation of Unfactorizable Systematic Uncertainties".
 
 ### Install
 
@@ -24,4 +24,4 @@ pip install gpder
 
 ### References
 
-TITLE OF PAPER
+Efficient Estimation of Unfactorizable Systematic Uncertainties
