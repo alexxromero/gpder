@@ -1,13 +1,21 @@
+import warnings
+
 import numpy as np
-from scipy.spatial.distance import pdist, cdist, squareform
-from sklearn.gaussian_process.kernels import StationaryKernelMixin
-from sklearn.gaussian_process.kernels import NormalizedKernelMixin
-from sklearn.gaussian_process.kernels import Kernel
-from sklearn.gaussian_process.kernels import Hyperparameter
-from sklearn.utils.validation import _num_samples
+from scipy.spatial.distance import cdist, pdist, squareform
+from sklearn.gaussian_process.kernels import (
+    Hyperparameter,
+    Kernel,
+    NormalizedKernelMixin,
+    StationaryKernelMixin,
+)
+
+from gpder.gaussian_process.kernels.regular import (
+    validate_bounds,
+    validate_scalar,
+    validate_scalar_or_array,
+)
 
 __all__ = ["DerivativeKernel"]
-
 
 class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     """Kernel for Gaussian Process Regression (GPR) with derivative observations.
@@ -73,22 +81,24 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         noise_level_der=1e-2,
         noise_level_der_bounds=(1e-2, 1e4),
     ):
-        self.amplitude = amplitude
-        self.amplitude_bounds = amplitude_bounds
-        self.length_scale = length_scale
-        self.length_scale_bounds = length_scale_bounds
-        if noise_level is None:
-            self.noise_level = 0
-            self.noise_level_bounds = "fixed"
-        else:
-            self.noise_level = noise_level
-            self.noise_level_bounds = noise_level_bounds
-        if noise_level_der is None:
-            self.noise_level_der = 0
-            self.noise_level_der_bounds = "fixed"
-        else:
-            self.noise_level_der = noise_level_der
-            self.noise_level_der_bounds = noise_level_der_bounds
+        self.amplitude = validate_scalar(amplitude, "amplitude")
+        self.amplitude_bounds = validate_bounds(amplitude_bounds, "amplitude_bounds")
+        self.length_scale = validate_scalar_or_array(length_scale, "length_scale")
+        self.length_scale_bounds = validate_bounds(
+            length_scale_bounds, "length_scale_bounds"
+        )
+        noise_level = noise_level if noise_level is not None else 0.0
+        self.noise_level = validate_scalar(noise_level, "noise_level")
+        self.noise_level_bounds = validate_bounds(
+            noise_level_bounds, "noise_level_bounds"
+        )
+        noise_level_der = noise_level_der if noise_level_der is not None else 0.0
+        self.noise_level_der = validate_scalar_or_array(
+            noise_level_der, "noise_level_der"
+        )
+        self.noise_level_der_bounds = validate_bounds(
+            noise_level_der_bounds, "noise_level_der_bounds"
+        )
 
     @property
     def hyperparameter_amplitude(self):
@@ -132,20 +142,23 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 "noise_level_der", "numeric", self.noise_level_der_bounds
             )
 
-    def __call__(self, X, dX=None, idx=None, eval_gradient=False):
+    def __call__(self, X, dX=None, add_noise=True, idx=None, eval_gradient=False):
         """Returns the kernel and optionally its gradients.
 
         Parameters
         ----------
-        X: ndarray of shape (n_samples_X, n_features)
+        X: ndarray of shape (n_sampX, n_feat)
             Function input.
 
-        dX: ndarray of shape (n_samples_dX, n_features_dX), default=None
+        dX: ndarray of shape (n_sampdX, n_featdX), default=None
             Derivative input. If None, then dX is assumed to be equal to X.
 
-        idx: ndarray of shape (n_features_dX,)
+        idx: ndarray of shape (n_featdX,)
             Indices of the dimensions of X along which the derivatives are evaluated.
-            If None, then idx is assumed to be equal to the range (0, n_features_X).
+            If None, then idx is assumed to be equal to the range (0, n_feat_X).
+
+        add_noise: bool, default=True
+            If True, the white noise is added to the diagonal of the kernel.
 
         eval_gradient: bool, default=False
             If True, the gradients with respect to the log of the
@@ -153,10 +166,12 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         Returns
         -------
-        K: ndarray of shape (n_samples_X + n_samples_dX * n_features_dX, n_samples_X + n_samples_dX * n_features_dX)
+        K: ndarray of shape 
+           (n_sampX + n_sampdX * n_featdX, n_sampX + n_sampdX * n_featdX)
             Kernel.
 
-        K_gradient: ndarray of shape (n_samples_X + n_samples_dX * n_features_dX, n_samples_X + n_samples_dX * n_features_dX, n_params)
+        K_gradient: ndarray of shape 
+            (n_sampX + n_sampdX * n_featdX, n_sampX + n_sampdX * n_featdX, n_params)
             The gradient of the kernel with respect to the
             hyperparameters of the kernel. Only returned when eval_gradient
             is True.
@@ -165,82 +180,94 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         if dX is None:
             dX = X
-        return self._kernel_hybrid(X, dX, idx, eval_gradient=eval_gradient)
+            if add_noise:
+                warnings.warn(
+                    "dX is None. Setting dX = X. "
+                    "Note that adding noise to cross-covariance operations "
+                    "may lead to an ill-conditioned kernel matrix.",
+                    UserWarning,
+                )
+        return self._kernel_hybrid(X, dX=dX, idx=idx, add_noise=add_noise, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
+        ls = self.length_scale
+
         if Y is None:
-            dists2 = pdist(X / self.length_scale, metric="sqeuclidean")
+            dists2 = pdist(X / ls, metric="sqeuclidean")
             K = np.exp(-0.5 * dists2)
             K = squareform(K)
             np.fill_diagonal(K, 1)
             return K
         else:
-            dists2 = cdist(
-                X / self.length_scale, Y / self.length_scale, metric="sqeuclidean"
-            )
+            dists2 = cdist(X / ls, Y / ls, metric="sqeuclidean")
             K = np.exp(-0.5 * dists2)
             return K
 
-    def _cov_yy(self, X, Y=None, add_noise=True, eval_gradient=False):
+    def _cov_yy(self, X, add_noise, Y=None, eval_gradient=False):
         """Covariance between function observations at inputs X and Y."""
-        amplitude = self.amplitude
-
-        length_scale = np.array(self.length_scale)
+        amp = self.amplitude
+        ls = self.length_scale
+        noise = self.noise_level
 
         if Y is None:
             (n_samples, _) = X.shape
-            K = amplitude**2 * self._rbf(X)
+
+            rbf = self._rbf(X)
+            K = amp**2 * rbf
             if add_noise and self.noise_level:
                 K += self.noise_level**2 * np.eye(n_samples)
 
-            if eval_gradient:
-                (
-                    dK_damplitude,
-                    dK_dlength_scale,
-                    dK_dnoise_level,
-                    dK_dnoise_level_der,
-                ) = self._initialize_gradients((n_samples, n_samples))
-                # with respect to the amplitude parameter
-                if not self.hyperparameter_amplitude.fixed:
-                    dK_damplitude = self._rbf(X)[:, :, np.newaxis]
-                    dK_damplitude *= 2 * amplitude
-                # with respect to the length_scale parameter
-                if not self.hyperparameter_length_scale.fixed:
-                    if not self.anisotropic_length_scale:
-                        dists2 = pdist(X / length_scale, metric="sqeuclidean")
-                        dists2 = squareform(dists2)
-                        grad = amplitude**2 * dists2 * self._rbf(X)
-                        dK_dlength_scale = grad[:, :, np.newaxis]
-                    else:
-                        dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2
-                        dists2 /= length_scale**2
-                        grad = amplitude**2 * dists2 * self._rbf(X)[..., np.newaxis]
-                        dK_dlength_scale = grad
-                # with respect to the noise_level parameter
-                if not self.hyperparameter_noise_level.fixed:
-                    dK_dnoise_level += (
-                        self.noise_level**2 * np.eye(n_samples)[:, :, np.newaxis]
-                    )
-                # no dependency on noise_level_der
-                return K, np.concatenate(
-                    (
-                        dK_damplitude,
-                        dK_dlength_scale,
-                        dK_dnoise_level,
-                        dK_dnoise_level_der,
-                    ),
-                    axis=-1,
-                )
-            else:
+            if not eval_gradient:
                 return K
+            
+            (
+                dK_damp,
+                dK_dls,
+                dK_dnoise,
+                dK_dnoise_der,
+            ) = self._initialize_gradients((n_samples, n_samples))
+
+            # with respect to the amplitude parameter
+            if not self.hyperparameter_amplitude.fixed:
+                dK_damp = (2 * amp**2 * rbf)[:, :, np.newaxis]
+
+            # with respect to the length_scale parameter
+            if not self.hyperparameter_length_scale.fixed:
+                if not self.anisotropic_length_scale:
+                    dists2 = squareform(pdist(X / ls, metric="sqeuclidean"))
+                    grad = amp**2 * dists2 * rbf
+                    dK_dls = grad[:, :, np.newaxis]
+                else:
+                    dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2
+                    dists2 /= ls**2
+                    grad = amp**2 * rbf[..., np.newaxis] * dists2
+                    dK_dls = grad
+
+            # with respect to the noise_level parameter
+            if not self.hyperparameter_noise_level.fixed:
+                dK_dnoise += 2 * noise**2 * np.eye(n_samples)[:, :, np.newaxis]
+
+            # no dependency on noise_level_der
+            return K, np.concatenate(
+                (
+                    dK_damp,
+                    dK_dls,
+                    dK_dnoise,
+                    dK_dnoise_der,
+                ),
+                axis=-1,
+            )
+        
         else:
+            if X.shape[1] != Y.shape[1]:
+                raise ValueError("The number of features of X and Y must be equal.")
             if eval_gradient:
                 raise ValueError("Grad can only be evaluated when Y is None.")
-            if add_noise and self.noise_level:
+            if add_noise:
                 raise ValueError("Noise is only added when Y is None.")
-            return amplitude**2 * self._rbf(X, Y)
+            return amp**2 * self._rbf(X, Y)
 
-    def _cov_ww(self, dX, dy=None, idx=None, add_noise=True, eval_gradient=False):
+    def _cov_ww(self, dX, add_noise, dy=None, idx=None, eval_gradient=False):
         """Covariance between derivative observations at inputs dX and dy."""
         if dy is None:
             dy = dX
@@ -249,122 +276,114 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 raise ValueError("The number of features of dX and dy must be equal.")
             if eval_gradient:
                 raise ValueError("Gradient can only be evaluated when dy is None.")
+            if add_noise:
+                raise ValueError("Noise can only be added when dy is None.")
 
-        (n_samples_dX, n_features_dX) = dX.shape
-        (n_samples_dY, _) = dy.shape
+        (n_sampdX, n_featdX) = dX.shape
+        (n_sampdY, _) = dy.shape
 
-        amplitude = self.amplitude
+        amp = self.amplitude
 
+        ls = np.asarray(self.length_scale)
         if not self.anisotropic_length_scale:
-            length_scale = np.repeat(self.length_scale, n_features_dX)
-        else:
-            length_scale = np.array(self.length_scale)
+            ls = np.repeat(ls, n_featdX)
 
+        noise_der = np.array(self.noise_level_der)
         if not self.anisotropic_noise_level_der:
-            noise_level_der = np.repeat(self.noise_level_der, n_features_dX)
-        else:
-            noise_level_der = np.array(self.noise_level_der)
+            noise_der = np.repeat(noise_der, n_featdX)
 
-        if idx is None:
-            grad_idx = np.arange(
-                dX.shape[1]
-            )  # Assuming all dimensions are accounted for
-        else:
-            grad_idx = idx
+        grad_idx = np.arange(dX.shape[1]) if idx is None else idx
+        
+        rbf = self._rbf(dX, dy)
 
-        K = np.zeros((n_samples_dX * len(grad_idx), n_samples_dY * len(grad_idx)))
+        K = np.zeros((n_sampdX * len(grad_idx), n_sampdY * len(grad_idx)))
         if eval_gradient:
-            (dK_damplitude, dK_dlength_scale, dK_dnoise_level, dK_dnoise_level_der) = (
+            (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der) = (
                 self._initialize_gradients(
-                    (n_samples_dX * len(grad_idx), n_samples_dY * len(grad_idx))
+                    (n_sampdX * len(grad_idx), n_sampdY * len(grad_idx))
                 )
             )
 
         for i, i_dim in enumerate(grad_idx):
             for j, j_dim in enumerate(grad_idx):
                 dist_i = dX[:, i_dim].reshape(-1, 1) - dy[:, i_dim].reshape(-1, 1).T
-                dist_i *= 1.0 / length_scale[i_dim] ** 2
+                dist_i *= 1.0 / ls[i_dim] ** 2
                 dist_j = dX[:, j_dim].reshape(-1, 1) - dy[:, j_dim].reshape(-1, 1).T
-                dist_j *= 1.0 / length_scale[j_dim] ** 2
-                dist_ii = (i_dim == j_dim) * (1.0 / length_scale[i_dim] ** 2)
+                dist_j *= 1.0 / ls[j_dim] ** 2
+                dist_ii = (i_dim == j_dim) * (1.0 / ls[i_dim] ** 2)
                 coeff = dist_ii - (dist_i * dist_j)
-                K_ij = amplitude**2 * coeff * self._rbf(dX, dy)
+                K_ij = amp**2 * coeff * rbf
                 K[
-                    i * n_samples_dX : (i + 1) * n_samples_dX,
-                    j * n_samples_dY : (j + 1) * n_samples_dY,
+                    i * n_sampdX : (i + 1) * n_sampdX,
+                    j * n_sampdY : (j + 1) * n_sampdY,
                 ] = K_ij
+
                 if add_noise and i_dim == j_dim:
                     K[
-                        i * n_samples_dX : (i + 1) * n_samples_dX,
-                        j * n_samples_dY : (j + 1) * n_samples_dY,
-                    ] += noise_level_der[i_dim] ** 2 * np.eye(
-                        n_samples_dX, n_samples_dY
-                    )
+                        i * n_sampdX : (i + 1) * n_sampdX,
+                        j * n_sampdY : (j + 1) * n_sampdY,
+                    ] += noise_der[i_dim] ** 2 * np.eye(n_sampdX, n_sampdY)
+
                 if eval_gradient:
-                    # with respect to the amplitude parameter
+                    # with respect to the log amplitude parameter
                     if not self.hyperparameter_amplitude.fixed:
-                        dK_damplitude[
-                            i * n_samples_dX : (i + 1) * n_samples_dX,
-                            j * n_samples_dY : (j + 1) * n_samples_dY,
-                        ] = (2 * amplitude * coeff * self._rbf(dX, dy))[
-                            :, :, np.newaxis
-                        ]
-                    # with respect to the length_scale parameter
+                        dK_damp[
+                            i * n_sampdX : (i + 1) * n_sampdX,
+                            j * n_sampdY : (j + 1) * n_sampdY,
+                        ] = (2 * amp**2 * coeff * self._rbf(dX, dy))[:, :, np.newaxis]
+
+                    # with respect to the log length_scale parameter
                     if not self.hyperparameter_length_scale.fixed:
                         if not self.anisotropic_length_scale:
-                            dists2 = pdist(dX / length_scale, metric="sqeuclidean")
-                            dists2 = squareform(dists2)
-                            d1 = coeff * dists2 * self._rbf(dX)
-                            d1 = d1[:, :, np.newaxis]
-                            dcoeff = (
-                                -2 * (i_dim == j_dim) * (1.0 / length_scale[0] ** 2)
-                            )
+                            dists2 = squareform(pdist(dX / ls, metric="sqeuclidean"))
+                            d1 = (coeff * dists2 * rbf)[:, :, np.newaxis]
+                            dcoeff = -2 * float(i_dim == j_dim) * (1.0 / ls[0] ** 2)
                             dcoeff += 4 * (dist_i * dist_j)
-                            d2 = dcoeff * self._rbf(dX)
+                            d2 = dcoeff * rbf
                             d2 = d2[:, :, np.newaxis]
                         else:
-                            dist2 = (
-                                dX[:, np.newaxis, :] - dX[np.newaxis, :, :]
-                            ) ** 2 * (1.0 / length_scale**2)
-                            d1 = (
-                                coeff[..., np.newaxis]
-                                * dist2
-                                * self._rbf(dX)[..., np.newaxis]
-                            )
+                            dist2 = (dX[:, np.newaxis, :] - dX[np.newaxis, :, :]) ** 2
+                            dist2 /= ls**2
+                            d1 = coeff[..., np.newaxis] * dist2 * rbf[..., np.newaxis]
                             dcoeff = 4 * (dist_i * dist_j)
                             dcoeff = np.repeat(
-                                dcoeff[:, :, np.newaxis], n_features_dX, axis=2
+                                dcoeff[:, :, np.newaxis], n_featdX, axis=2
                             )
-                            dcoeff -= 2 * (i_dim == j_dim) * (1.0 / length_scale**2)
-                            d2 = dcoeff * self._rbf(dX)[..., np.newaxis]
-                        dK_dlength_scale[
-                            i * n_samples_dX : (i + 1) * n_samples_dX,
-                            j * n_samples_dY : (j + 1) * n_samples_dY,
-                        ] = amplitude**2 * (d1 + d2)
+                            dcoeff -= 2 * float(i_dim == j_dim) * (1.0 / ls**2)
+                            d2 = dcoeff * rbf[..., np.newaxis]
+                        dK_dls[
+                            i * n_sampdX : (i + 1) * n_sampdX,
+                            j * n_sampdY : (j + 1) * n_sampdY,
+                        ] = amp**2 * (d1 + d2)
+
                     # no dependence on noise_level
-                    # with respect to the noise_level_der parameter
+                    # with respect to the log noise_level_der parameter
                     if add_noise and not self.hyperparameter_noise_level_der.fixed:
                         if i_dim == j_dim:
                             if not self.anisotropic_noise_level_der:
-                                noise_grad = noise_level_der[i_dim] ** 2 * np.eye(
-                                    n_samples_dX, n_samples_dY
-                                )
-                                dK_dnoise_level_der[
-                                    i * n_samples_dX : (i + 1) * n_samples_dX,
-                                    j * n_samples_dY : (j + 1) * n_samples_dY,
-                                ] = noise_grad[..., np.newaxis]
+                                noise_grad = (
+                                    2
+                                    * noise_der[i_dim] ** 2
+                                    * np.eye(n_sampdX, n_sampdY)
+                                )[..., np.newaxis]
+                                dK_dnoise_der[
+                                    i * n_sampdX : (i + 1) * n_sampdX,
+                                    j * n_sampdY : (j + 1) * n_sampdY,
+                                ] = noise_grad
                             else:
-                                noise_grad = noise_level_der[i_dim] ** 2 * np.eye(
-                                    n_samples_dX, n_samples_dY
+                                noise_grad = (
+                                    2
+                                    * noise_der[i_dim] ** 2
+                                    * np.eye(n_sampdX, n_sampdY)
                                 )
-                                dK_dnoise_level_der[
-                                    i * n_samples_dX : (i + 1) * n_samples_dX,
-                                    j * n_samples_dY : (j + 1) * n_samples_dY,
+                                dK_dnoise_der[
+                                    i * n_sampdX : (i + 1) * n_sampdX,
+                                    j * n_sampdY : (j + 1) * n_sampdY,
                                     i_dim,
                                 ] = noise_grad
         if eval_gradient:
             return K, np.concatenate(
-                (dK_damplitude, dK_dlength_scale, dK_dnoise_level, dK_dnoise_level_der),
+                (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der),
                 axis=-1,
             )
         else:
@@ -373,81 +392,80 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def _cov_wy(self, dX, Y, idx=None, eval_gradient=False):
         """Covariance between derivative (dX) and function (Y) observations.
         Note that cov_wy = cov_yw.T"""
-        (n_samples_dX, n_features_dX) = dX.shape
-        (n_samples_Y, n_features_Y) = Y.shape
+        (n_sampdX, n_featdX) = dX.shape
+        (n_sampY, n_feat_Y) = Y.shape
 
-        amplitude = self.amplitude
+        rbf = self._rbf(dX, Y)
 
+        amp = self.amplitude
+
+        ls = np.array(self.length_scale)
         if not self.anisotropic_length_scale:
-            length_scale = np.repeat(self.length_scale, n_features_dX)
-        else:
-            length_scale = np.array(self.length_scale)
+            ls = np.repeat(ls, n_featdX)
+            ls_scalar = ls[0]
 
-        if idx is None:
-            grad_idx = np.arange(n_features_Y)
-        else:
-            grad_idx = idx
+        grad_idx = idx if idx is not None else np.arange(n_featdX)
 
-        K = np.zeros((n_samples_dX * len(grad_idx), n_samples_Y))
+        K = np.zeros((n_sampdX * len(grad_idx), n_sampY))
         if eval_gradient:
-            (dK_damplitude, dK_dlength_scale, dK_dnoise_level, dK_dnoise_level_der) = (
-                self._initialize_gradients((n_samples_dX * len(grad_idx), n_samples_Y))
+            (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der) = self._initialize_gradients(
+                (n_sampdX * len(grad_idx), n_sampY)
             )
 
         for i, i_dim in enumerate(grad_idx):
             dist_i = dX[:, i_dim].reshape(-1, 1) - Y[:, i_dim].reshape(-1, 1).T
-            dist_i_scl = dist_i * (1.0 / length_scale[i_dim] ** 2)
-            K_i = -1.0 * amplitude**2 * dist_i_scl * self._rbf(dX, Y)
-            K[i * n_samples_dX : (i + 1) * n_samples_dX] = K_i
+            dist_i_scl = dist_i * (1.0 / ls[i_dim] ** 2)
+            K_i = -1.0 * amp**2 * dist_i_scl * rbf
+            K[i * n_sampdX : (i + 1) * n_sampdX] = K_i
             if eval_gradient:
-                # with respect to the amplitude parameter
+
+                # with respect to the log amplitude parameter
                 if not self.hyperparameter_amplitude.fixed:
-                    dK_i_amp = -2.0 * amplitude * dist_i_scl * self._rbf(dX, Y)
-                    dK_damplitude[i * n_samples_dX : (i + 1) * n_samples_dX, :] = (
-                        dK_i_amp[:, :, np.newaxis]
-                    )
-                # with respect to the length_scale parameter
+                    dK_i_amp = -2.0 * amp**2 * dist_i_scl * rbf
+                    dK_damp[i * n_sampdX : (i + 1) * n_sampdX, :] = dK_i_amp[
+                        :, :, np.newaxis
+                    ]
+
+                # with respect to the log length_scale parameter
                 if not self.hyperparameter_length_scale.fixed:
                     if not self.anisotropic_length_scale:
                         dists2 = cdist(
-                            dX / self.length_scale,
-                            Y / self.length_scale,
+                            dX / ls_scalar,
+                            Y / ls_scalar,
                             metric="sqeuclidean",
                         )
-                        d1 = -1.0 * dist_i_scl * dists2 * self._rbf(dX, Y)
-                        d1 = d1[:, :, np.newaxis]
-                        dcoeff = 2.0 * dist_i * (1.0 / self.length_scale**2)
-                        d2 = dcoeff * self._rbf(dX, Y)
-                        d2 = d2[:, :, np.newaxis]
+                        d1 = (-1.0 * dist_i_scl * dists2 * rbf)[:, :, np.newaxis]
+                        dcoeff = 2.0 * dist_i * (1.0 / ls_scalar**2)
+                        d2 = (dcoeff * rbf)[:, :, np.newaxis]
                     else:
                         dist2 = (dX[:, np.newaxis, :] - Y[np.newaxis, :, :]) ** 2
-                        dist2 /= length_scale**2
+                        dist2 /= ls**2
                         d1 = -1.0 * dist_i_scl[..., np.newaxis] * dist2
-                        d1 *= self._rbf(dX, Y)[..., np.newaxis]
+                        d1 *= rbf[..., np.newaxis]
                         dcoeff = 2.0 * np.repeat(
-                            dist_i[..., np.newaxis], n_features_Y, axis=2
+                            dist_i[..., np.newaxis], n_feat_Y, axis=2
                         )
-                        dcoeff /= length_scale**2
-                        d2 = dcoeff * self._rbf(dX, Y)[..., np.newaxis]
-                    dK_dlength_scale[i * n_samples_dX : (i + 1) * n_samples_dX, :] = (
-                        amplitude**2 * (d1 + d2)
-                    )
+                        dcoeff /= ls**2
+                        d2 = dcoeff * rbf[..., np.newaxis]
+                    dK_dls[i * n_sampdX : (i + 1) * n_sampdX, :] = amp**2 * (d1 + d2)
+
                 # no dependence on noise_level
                 # no dependence on noise_level_der
         if eval_gradient:
             return K, np.concatenate(
-                (dK_damplitude, dK_dlength_scale, dK_dnoise_level, dK_dnoise_level_der),
+                (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der),
                 axis=-1,
             )
         else:
             return K
 
-    def _kernel_hybrid(self, X, dX, idx=None, eval_gradient=False):
+
+    def _kernel_hybrid(self, X, dX, add_noise, idx=None, eval_gradient=False):
         """Returns the composite covariance between function and derivative observations,
         and optionally its gradient."""
         if eval_gradient:
-            (K_yy, dK_yy) = self._cov_yy(X=X, eval_gradient=True)
-            (K_ww, dK_ww) = self._cov_ww(dX=dX, idx=idx, eval_gradient=True)
+            (K_yy, dK_yy) = self._cov_yy(X=X, eval_gradient=True, add_noise=add_noise)
+            (K_ww, dK_ww) = self._cov_ww(dX=dX, idx=idx, eval_gradient=True, add_noise=add_noise)
             (K_wy, dK_wy) = self._cov_wy(dX=dX, Y=X, idx=idx, eval_gradient=True)
             K = np.block([[K_yy, K_wy.T], [K_wy, K_ww]])
             dK = np.zeros((K.shape[0], K.shape[1], dK_yy.shape[2]))
@@ -460,8 +478,8 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 )
             return K, dK
         else:
-            K_yy = self._cov_yy(X)
-            K_ww = self._cov_ww(dX, idx=idx)
+            K_yy = self._cov_yy(X, add_noise=add_noise)
+            K_ww = self._cov_ww(dX, idx=idx, add_noise=add_noise)
             K_wy = self._cov_wy(dX, X, idx=idx)
             K = np.block([[K_yy, K_wy.T], [K_wy, K_ww]])
             return K
@@ -470,55 +488,55 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         """Check the length_scale parameter."""
         if np.ndim(length_scale) == 1 and X.shape[1] != len(length_scale):
             raise ValueError(
-                "Anisotropic kernels must have the same number of"
-                "dimensions as data (%d!=%d)" % (len(length_scale), X.shape[1])
+                "Anisotropic kernels must have the same number of "
+                f"dimensions as data ({len(length_scale):d}!={X.shape[1]:d})"
             )
 
     def _initialize_gradients(self, dims):
-        # with respect to the amplitude parameter
-        if self.hyperparameter_amplitude.fixed:
-            dK_damplitude = np.empty(dims + (0,))
-        else:
-            dK_damplitude = np.zeros(dims + (1,))
-        # with respect to the length_scale parameter
-        if self.hyperparameter_length_scale.fixed:
-            dK_dlength_scale = np.empty(dims + (0,))
-        else:
-            if not self.anisotropic_length_scale:
-                dK_dlength_scale = np.zeros(dims + (1,))
-            else:
-                dK_dlength_scale = np.zeros(dims + (len(self.length_scale),))
-        # with respect to the noise_level parameter
-        if self.hyperparameter_noise_level.fixed:
-            dK_dnoise_level = np.empty(dims + (0,))
-        else:
-            dK_dnoise_level = np.zeros(dims + (1,))
-        # with respect to the noise_level_der parameter
-        if self.hyperparameter_noise_level_der.fixed:
-            dK_dnoise_level_der = np.empty(dims + (0,))
-        else:
-            if not self.anisotropic_noise_level_der:
-                dK_dnoise_level_der = np.zeros(dims + (1,))
-            else:
-                dK_dnoise_level_der = np.zeros(dims + (len(self.noise_level_der),))
-        return (dK_damplitude, dK_dlength_scale, dK_dnoise_level, dK_dnoise_level_der)
+        def alloc(fixed: bool, size: int):
+            return np.empty(dims + (0,)) if fixed else np.zeros(dims + (size,))
+
+        ls_size = (
+            1
+            if not self.anisotropic_length_scale
+            else np.atleast_1d(self.length_scale).size
+        )
+        nld_size = (
+            1
+            if not self.anisotropic_noise_level_der
+            else np.atleast_1d(self.noise_level_der).size
+        )
+
+        dK_damp = alloc(self.hyperparameter_amplitude.fixed, 1)
+        dK_dls = alloc(self.hyperparameter_length_scale.fixed, ls_size)
+        dK_dnoise = alloc(self.hyperparameter_noise_level.fixed, 1)
+        dK_dnoise_der = alloc(self.hyperparameter_noise_level_der.fixed, nld_size)
+
+        return (
+            dK_damp,
+            dK_dls,
+            dK_dnoise,
+            dK_dnoise_der,
+        )
 
     def __repr__(self):
         if not self.anisotropic_length_scale:
-            desc = "{0:.3g}**2 * DerivativeRBF(length_scale={1:.3g})".format(
-                self.amplitude, np.ravel(self.length_scale)[0]
+            ls0 = np.ravel(self.length_scale)[0]
+            desc = (
+                f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale={ls0:.3g})"
             )
         else:
-            desc = "{0:.3g}**2 * DerivativeRBF(length_scale=[{1}])".format(
-                self.amplitude, ", ".join(map("{0:.3g}".format, self.length_scale))
+            scales = ", ".join(f"{s:.3g}" for s in self.length_scale)
+            desc = (
+                f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale=[{scales}])"
             )
-        desc += " + WhiteKernel(noise_level={0:.3g})".format(self.noise_level)
+
+        desc += f" + WhiteKernel(noise_level={self.noise_level:.3g})"
+
         if not self.anisotropic_noise_level_der:
-            desc += " + WhiteKernel_der(noise_level={0:.3g})".format(
-                self.noise_level_der
-            )
+            desc += f" + WhiteKernel_der(noise_level={self.noise_level_der:.3g})"
         else:
-            desc += " + WhiteKernel_der(noise_level=[{0}])".format(
-                ", ".join(map("{0:.3g}".format, self.noise_level_der))
-            )
+            noise_scales = ", ".join(f"{s:.3g}" for s in self.noise_level_der)
+            desc += f" + WhiteKernel_der(noise_level=[{noise_scales}])"
+
         return desc

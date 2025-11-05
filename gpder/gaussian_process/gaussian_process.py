@@ -1,9 +1,8 @@
 import numpy as np
-from sklearn.utils.validation import check_random_state
-from sklearn.base import MultiOutputMixin, RegressorMixin, BaseEstimator
-from sklearn.base import clone
-from sklearn.utils.optimize import _check_optimize_result
 import scipy
+from sklearn.base import BaseEstimator, MultiOutputMixin, RegressorMixin, clone
+from sklearn.utils.optimize import _check_optimize_result
+from sklearn.utils.validation import check_random_state
 
 __all__ = ["GaussianProcessRegressor"]
 
@@ -62,19 +61,19 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
     kernel_opt : RegularKernel or DerivativeKernel
         Optimized kernel.
 
-    X_train: ndarray, shape (n_samples, n_features)
+    X_train: ndarray, shape (n_samp, n_feat)
         Training input.
 
-    y_train: ndarray, shape (n_samples,)
+    y_train: ndarray, shape (n_samp,)
         Training output.
 
-    dX_train: ndarray, shape (n_samples_der, n_features)
+    dX_train: ndarray, shape (n_samp_der, n_feat)
         Training derivative input.
 
-    dy_train: ndarray, shape (n_samples_der, n_targets_der)
+    dy_train: ndarray, shape (n_samp_der, n_feat_der)
         Training derivative output.
 
-    idx: ndarray, shape (n_targets_der)
+    idx: ndarray, shape (n_feat_der)
         Indices along which the derivative output is observed.
 
     lml: float
@@ -121,19 +120,19 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X : ndarray, shape (n_samples, n_features)
+        X : ndarray, shape (n_samp, n_feat)
             Training input.
 
-        y : ndarray, shape (n_samples,)
+        y : ndarray, shape (n_samp,)
             Training output.
 
-        dX : ndarray, shape (n_samples_der, n_features), default=None
+        dX : ndarray, shape (n_samp_der, n_feat), default=None
             Training derivative input.
 
-        dy : ndarray, shape (n_samples_der, n_targets_der), default=None
+        dy : ndarray, shape (n_samp_der, n_feat_der), default=None
             Training derivative output.
 
-        idx : ndarray, shape (n_targets_der), default=None
+        idx : ndarray, shape (n_feat_der), default=None
             Indices along which the derivative output is observed.
             For example, if only the gradients along the 0th and 2nd dimension
             are observed, pass idx=[0, 2]. In None, all dimensions are assumed.
@@ -146,8 +145,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         self.X_train = atleast_2d(X)
         self.y_train = atleast_2d(y)
-        (self._n_samples_X, self._n_dims) = self.X_train.shape
-        if self.y_train.shape[0] != self._n_samples_X:
+        (self._n_samp_X, self._n_dims) = self.X_train.shape
+        if self.y_train.shape[0] != self._n_samp_X:
             raise ValueError("X and y must have the same number of samples.")
 
         if dX is None and dy is None:
@@ -159,7 +158,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             self._has_gradients = True
             self.dX_train = atleast_2d(dX)
             self.dy_train = atleast_2d(dy)
-            self._n_samples_der = len(self.dX_train)
+            self._n_samp_der = len(self.dX_train)
             if len(self.dX_train) != len(self.dy_train):
                 raise ValueError("dX and dy must have the same number of samples.")
             self.idx = np.arange(self._n_dims) if idx is None else idx
@@ -180,10 +179,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         if self._has_gradients:
             self._training_cov = kernel_opt(
-                X=self.X_train, dX=self.dX_train, idx=self.idx
+                X=self.X_train, dX=self.dX_train, idx=self.idx, add_noise=True
             )
         else:
-            self._training_cov = kernel_opt(self.X_train)
+            self._training_cov = kernel_opt(self.X_train, add_noise=True)
 
         try:
             # adding small alpha value to the diagonal for numerical stability
@@ -191,10 +190,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 self._training_cov + self.kappa * np.eye(len(self._training_cov)),
                 lower=True,
             )
-        except scipy.linalg.LinAlgError:
+        except scipy.linalg.LinAlgError as err:
             raise ValueError(
                 "The kernel is not positive definite. Try increasing kappa."
-            )
+            ) from err
         self._alpha_cholevsky = scipy.linalg.cho_solve(
             (self._L_cholevsky, True), self._y_cholesky
         )
@@ -210,16 +209,16 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X_train : ndarray, shape (n_samples, n_features), default=None
+        X_train : ndarray, shape (n_samp, n_feat), default=None
             New training input.
 
-        y_train : ndarray, shape (n_samples,), default=None
+        y_train : ndarray, shape (n_samp,), default=None
             New training output.
 
-        dX_train : ndarray, shape (n_samples_der, n_features), default=None
+        dX_train : ndarray, shape (n_samp_der, n_feat), default=None
             New training derivative input.
 
-        dy_train : ndarray, shape (n_samples_der, n_targets_der), default=None
+        dy_train : ndarray, shape (n_samp_der, n_feat_der), default=None
             New training derivative output.
 
         Returns
@@ -243,10 +242,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             L_cholevsky = scipy.linalg.cholesky(
                 training_cov + self.kappa * np.eye(training_cov.shape[0]), lower=True
             )
-        except scipy.linalg.LinAlgError:
+        except scipy.linalg.LinAlgError as err:
             raise ValueError(
                 "The kernel is not positive definite. Try increasing kappa."
-            )
+            ) from err
         alpha_cholevsky = scipy.linalg.cho_solve((L_cholevsky, True), y_cholesky)
 
         if X_train is not None and y_train is not None:
@@ -260,7 +259,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         self._y_cholesky = y_cholesky
         self._L_cholevsky = L_cholevsky
         self._alpha_cholevsky = alpha_cholevsky
-        self._n_samples_X = len(self.X_train)
+        self._n_samp_X = len(self.X_train)
         return self
 
     def predict(self, X, return_std=False, return_cov=False):
@@ -268,7 +267,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X : ndarray, shape (n_samples, n_features)
+        X : ndarray, shape (n_samp, n_feat)
             Test input.
 
         return_std : bool, default=False
@@ -281,14 +280,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Returns
         -------
-        y_mean : ndarray, shape (n_samples,)
+        y_mean : ndarray, shape (n_samp,)
             Mean of predictive distribution.
 
-        y_std : ndarray, shape (n_samples,)
+        y_std : ndarray, shape (n_samp,)
             Standard deviation of predictive distribution. Only returned if
             return_std is True.
 
-        y_cov : ndarray, shape (n_samples, n_samples)
+        y_cov : ndarray, shape (n_samp, n_samp)
             Covariance matrix of predictive distribution. Only returned if
             return_cov is True.
         """
@@ -341,7 +340,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        dX : ndarray, shape (n_samples, n_features)
+        dX : ndarray, shape (n_samp, n_feat)
             Test derivative input.
 
         return_std : bool, default=False
@@ -354,13 +353,13 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Returns
         -------
-        dy_mean : ndarray, shape (n_samples, n_targets)
+        dy_mean : ndarray, shape (n_samp, n_targets)
             Mean of predictive distribution.
 
-        dy_std : ndarray, shape (n_samples, n_targets)
+        dy_std : ndarray, shape (n_samp, n_targets)
             Standard deviation of predictive distribution. Only returned if return_std is True.
 
-        dy_cov : ndarray, shape (n_samples, n_samples)
+        dy_cov : ndarray, shape (n_samp, n_samp)
             Covariance matrix of predictive distribution. Only returned if return_cov is True.
         """
 
@@ -421,13 +420,13 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X_predict : ndarray, shape (n_samples_test, n_features)
+        X_predict : ndarray, shape (n_samp_test, n_feat)
             Test input.
 
-        X_train_query : ndarray, shape (n_samples, n_features), default=None
+        X_train_query : ndarray, shape (n_samp, n_feat), default=None
             This input is temporarely added to the training data when predicting 'X_predict'.
 
-        dX_train_query : ndarray, shape (n_samples_der, n_features), default=None
+        dX_train_query : ndarray, shape (n_samp_der, n_feat), default=None
             This derivative input is temporarely added to the training data when predicting 'X_predict'.
 
         return_mean : bool, default=True
@@ -441,14 +440,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Returns
         -------
-        y_mean : ndarray, shape (n_samples_test,)
+        y_mean : ndarray, shape (n_samp_test,)
             Mean of predictive distribution.
 
-        y_std : ndarray, shape (n_samples_test,)
+        y_std : ndarray, shape (n_samp_test,)
             Standard deviation of predictive distribution. Only returned if
             return_std is True.
 
-        y_cov : ndarray, shape (n_samples_test, n_samples_test)
+        y_cov : ndarray, shape (n_samp_test, n_samp_test)
             Covariance matrix of predictive distribution. Only returned if
             return_cov is True.
         """
@@ -545,7 +544,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        X : ndarray, shape (n_samples, n_features)
+        X : ndarray, shape (n_samp, n_feat)
             Test input.
 
         n_draws : int, default=1
@@ -556,7 +555,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Returns
         -------
-        y_samples : ndarray, shape (n_draws, n_samples)
+        y_samples : ndarray, shape (n_draws, n_samp)
             Samples from the predictive distribution.
         """
         rng = check_random_state(random_state)
@@ -569,7 +568,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Parameters
         ----------
-        dX : ndarray, shape (n_samples, n_features)
+        dX : ndarray, shape (n_samp, n_feat)
             Test derivative input.
 
         n_draws : int, default=1
@@ -580,7 +579,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         Returns
         -------
-        dy_samples : ndarray, shape (n_draws, n_samples * n_targets)
+        dy_samples : ndarray, shape (n_draws, n_samp * n_targets)
             Samples from the predictive distribution of the gradients.
         """
         rng = check_random_state(random_state)
@@ -594,163 +593,101 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             )
         return dy_samples
 
-    def _expand_training_covariance(self, X_new=None, dX_new=None):
-        if self._has_gradients:
-            cov_yy_old = self._training_cov[: self._n_samples_X, : self._n_samples_X]
-            cov_wy_old = self._training_cov[self._n_samples_X :, : self._n_samples_X]
-            cov_ww_old = self._training_cov[self._n_samples_X :, self._n_samples_X :]
-            if X_new is not None and dX_new is not None:
-                # covariance (y, y)
-                cov_yy_oX_nX = self.kernel._cov_yy(self.X_train, X_new, add_noise=False)
-                cov_yy_nX = self.kernel._cov_yy(X_new)
-                cov_yy = np.block(
-                    [[cov_yy_old, cov_yy_oX_nX], [cov_yy_oX_nX.T, cov_yy_nX]]
-                )
-                # mixed covariance (w, y)
-                cov_wy_odX_nX = self.kernel._cov_wy(self.dX_train, X_new)
-                cov_wy_ndX_oX = self.kernel._cov_wy(dX_new, self.X_train)
-                cov_wy_ndX_nX = self.kernel._cov_wy(dX_new, X_new)
-                n_oX, n_odX = self.X_train.shape[0], self.dX_train.shape[0]
-                n_nX, n_ndX = X_new.shape[0], dX_new.shape[0]
-                cov_wy = np.zeros(
-                    (
-                        cov_wy_old.shape[0] + n_ndX * self._n_dims_der,
-                        cov_wy_old.shape[1] + n_nX,
-                    )
-                )
-                for i in range(self._n_dims_der):
-                    low = i * (n_odX + n_ndX)
-                    cov_wy[low : low + n_odX, :-n_nX] = cov_wy_old[
-                        i * n_odX : (i + 1) * n_odX, :
-                    ]
-                    cov_wy[low + n_odX : low + n_odX + n_ndX, :-n_nX] = cov_wy_ndX_oX[
-                        i * n_ndX : (i + 1) * n_ndX, :
-                    ]
-                    cov_wy[low : low + n_odX, -n_nX:] = cov_wy_odX_nX[
-                        i * n_odX : (i + 1) * n_odX, :
-                    ]
-                    cov_wy[low + n_odX : low + n_odX + n_ndX :, -n_nX:] = cov_wy_ndX_nX[
-                        i * n_ndX : (i + 1) * n_ndX, :
-                    ]
-                # derivative covariance (w, w)
-                cov_ww_odX_ndX = self.kernel._cov_ww(
-                    self.dX_train, X_new, add_noise=False
-                )
-                cov_ww_ndX_odX = self.kernel._cov_ww(
-                    dX_new, self.dX_train, add_noise=False
-                )
-                cov_ww_ndX_ndX = self.kernel._cov_ww(dX_new, dX_new, add_noise=True)
-                cov_ww = np.zeros(
-                    (
-                        cov_ww_old.shape[0] + n_ndX * self._n_dims_der,
-                        cov_ww_old.shape[1] + n_ndX * self._n_dims_der,
-                    )
-                )
-                for i in range(self._n_dims_der):
-                    for j in range(self._n_dims_der):
-                        low_i = i * (n_odX + n_ndX)
-                        low_j = j * (n_odX + n_ndX)
-                        cov_ww[low_i : low_i + n_odX, low_j : low_j + n_odX] = (
-                            cov_ww_old[
-                                i * n_odX : (i + 1) * n_odX, j * n_odX : (j + 1) * n_odX
-                            ]
-                        )
-                        cov_ww[
-                            low_i : low_i + n_odX, low_j + n_odX : low_j + n_odX + n_ndX
-                        ] = cov_ww_odX_ndX[
-                            i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX
-                        ]
-                        cov_ww[
-                            low_i + n_odX : low_i + n_odX + n_ndX, low_j : low_j + n_odX
-                        ] = cov_ww_ndX_odX[
-                            i * n_ndX : (i + 1) * n_ndX, j * n_odX : (j + 1) * n_odX
-                        ]
-                        cov_ww[
-                            low_i + n_odX : low_i + n_odX + n_ndX,
-                            low_j + n_odX : low_j + n_odX + n_ndX,
-                        ] = cov_ww_ndX_ndX[
-                            i * n_ndX : (i + 1) * n_ndX, j * n_ndX : (j + 1) * n_ndX
-                        ]
-            elif X_new is not None:
-                # covariance (y, y)
-                cov_yy_oX_nX = self.kernel._cov_yy(self.X_train, X_new, add_noise=False)
-                cov_yy_nX = self.kernel._cov_yy(X_new)
-                cov_yy = np.block(
-                    [[cov_yy_old, cov_yy_oX_nX], [cov_yy_oX_nX.T, cov_yy_nX]]
-                )
-                # mixed covariance (w, y)
-                cov_wy_odX_nX = self.kernel._cov_wy(self.dX_train, X_new)
-                cov_wy = np.block([[cov_wy_old, cov_wy_odX_nX]])
-                # derivative covariance (w, w) - remains unchanged
-                cov_ww = cov_ww_old
+    def _expand_cov_yy(self, X_new):
+        n = self.X_train.shape[0]
 
-            elif dX_new is not None:
-                # covariance (y, y) - remains unchanged
-                cov_yy = cov_yy_old
-                # mixed covariance (w, y)
-                cov_wy_ndX_oX = self.kernel._cov_wy(dX_new, self.X_train)
-                n_oX, n_ndX = self.X_train.shape[0], dX_new.shape[0]
-                cov_wy = np.zeros(
-                    (
-                        cov_wy_old.shape[0] + n_ndX * self._n_dims_der,
-                        cov_wy_old.shape[1],
-                    )
-                )
-                for i in range(self._n_dims_der):
-                    low = i * (n_oX + n_ndX)
-                    cov_wy[low : low + n_oX, :] = cov_wy_old[
-                        i * n_oX : (i + 1) * n_oX, :
-                    ]
-                    cov_wy[low + n_oX : low + n_oX + n_ndX, :] = cov_wy_ndX_oX[
-                        i * n_ndX : (i + 1) * n_ndX, :
-                    ]
-                # derivative covariance (w, w)
-                n_odX = self.dX_train.shape[0]
-                cov_ww_odX_ndX = self.kernel._cov_ww(
-                    self.dX_train, dX_new, add_noise=False
-                )
-                cov_ww_ndX = self.kernel._cov_ww(dX_new, add_noise=True)
-                cov_ww = np.zeros(
-                    (
-                        cov_ww_old.shape[0] + n_ndX * self._n_dims_der,
-                        cov_ww_old.shape[1] + n_ndX * self._n_dims_der,
-                    )
-                )
-                for i in range(self._n_dims_der):
-                    for j in range(self._n_dims_der):
-                        low_i = i * (n_odX + n_ndX)
-                        low_j = j * (n_odX + n_ndX)
-                        cov_ww[low_i : low_i + n_odX, low_j : low_j + n_odX] = (
-                            cov_ww_old[
-                                i * n_odX : (i + 1) * n_odX, j * n_odX : (j + 1) * n_odX
-                            ]
-                        )
-                        cov_ww[
-                            low_i + n_odX : low_i + n_odX + n_ndX, low_j : low_j + n_odX
-                        ] = cov_ww_odX_ndX[
-                            i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX
-                        ].T
-                        cov_ww[
-                            low_j : low_j + n_odX, low_i + n_odX : low_i + n_odX + n_ndX
-                        ] = cov_ww_odX_ndX[
-                            i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX
-                        ]
-                        cov_ww[
-                            low_i + n_odX : low_i + n_odX + n_ndX,
-                            low_j + n_odX : low_j + n_odX + n_ndX,
-                        ] = cov_ww_ndX[
-                            i * n_ndX : (i + 1) * n_ndX, j * n_ndX : (j + 1) * n_ndX
-                        ]
+        cov_yy_oX = self._training_cov[:n, :n]
+        cov_yy_oX_nX = self.kernel._cov_yy(X=self.X_train, Y=X_new, add_noise=False)
+        cov_yy_nX = self.kernel._cov_yy(X=X_new, add_noise=True)
+        return np.block([[cov_yy_oX, cov_yy_oX_nX], [cov_yy_oX_nX.T, cov_yy_nX]])
 
-            training_cov = np.block([[cov_yy, cov_wy.T], [cov_wy, cov_ww]])
-        else:
-            cov_yy_oX_nX = self.kernel._cov_yy(self.X_train, X_new, add_noise=False)
-            cov_yy_nX = self.kernel._cov_yy(X_new)
-            training_cov = np.block(
-                [[self._training_cov, cov_yy_oX_nX], [cov_yy_oX_nX.T, cov_yy_nX]]
+    def _expand_cov_ww(self, dX_new):
+        n_odX = self.dX_train.shape[0]
+        n_ndX = dX_new.shape[0]
+
+        cov_ww_oX = self._training_cov[-n_odX * self._n_dims_der:, 
+                                       -n_odX * self._n_dims_der:]
+        cov_ww_odX_ndX = self.kernel._cov_ww(
+            dX=self.dX_train, dy=dX_new, add_noise=False
             )
-        return training_cov
+        cov_ww_ndX_odX = cov_ww_odX_ndX.T
+        cov_ww_ndX = self.kernel._cov_ww(dX=dX_new, add_noise=True)
 
+        cov_ww = np.zeros(
+            (
+                (n_odX + n_ndX) * self._n_dims_der, (n_odX + n_ndX) * self._n_dims_der,
+            )
+        )
+        for i in range(self._n_dims_der):
+            for j in range(self._n_dims_der):
+                low_i = i * (n_odX + n_ndX)
+                low_j = j * (n_odX + n_ndX)
+                cov_ww[low_i : low_i + n_odX, low_j : low_j + n_odX] = cov_ww_oX[
+                    i * n_odX : (i + 1) * n_odX, j * n_odX : (j + 1) * n_odX
+                ]
+                cov_ww[low_i : low_i + n_odX, low_j + n_odX : low_j + n_odX + n_ndX] = (
+                    cov_ww_odX_ndX[
+                        i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX
+                    ]
+                )
+                cov_ww[low_i + n_odX : low_i + n_odX + n_ndX, low_j : low_j + n_odX] = (
+                    cov_ww_ndX_odX[
+                        i * n_ndX : (i + 1) * n_ndX, j * n_odX : (j + 1) * n_odX
+                    ]
+                )
+                cov_ww[
+                    low_i + n_odX : low_i + n_odX + n_ndX,
+                    low_j + n_odX : low_j + n_odX + n_ndX,
+                ] = cov_ww_ndX[i * n_ndX : (i + 1) * n_ndX, j * n_ndX : (j + 1) * n_ndX]
+        return cov_ww
+
+    def _expand_cov_wy(self, X_new, dX_new):
+        n_oX = self.X_train.shape[0]
+        n_nX = X_new.shape[0]
+
+        n_odX = self.dX_train.shape[0]
+        n_ndX = dX_new.shape[0]
+
+        cov_wy_odX_oX = self._training_cov[n_oX:, :n_oX]
+        cov_wy_odX_nX = self.kernel._cov_wy(self.dX_train, X_new)
+        cov_wy_ndX_oX = self.kernel._cov_wy(dX_new, self.X_train)
+        cov_wy_ndX_nX = self.kernel._cov_wy(dX_new, X_new)
+
+        cov_wy = np.zeros(
+            (
+                n_odX * self._n_dims_der + n_ndX * self._n_dims_der,
+                n_oX + n_nX,
+            )
+        )
+
+        for i in range(self._n_dims_der):
+            low = i * (n_odX + n_ndX)
+            cov_wy[low : low + n_odX, :-n_nX] = cov_wy_odX_oX[
+                i * n_odX : (i + 1) * n_odX, :
+            ]
+            cov_wy[low + n_odX : low + n_odX + n_ndX, :-n_nX] = cov_wy_ndX_oX[
+                i * n_ndX : (i + 1) * n_ndX, :
+            ]
+            cov_wy[low : low + n_odX, -n_nX:] = cov_wy_odX_nX[
+                i * n_odX : (i + 1) * n_odX, :
+            ]
+            cov_wy[low + n_odX : low + n_odX + n_ndX, -n_nX:] = cov_wy_ndX_nX[
+                i * n_ndX : (i + 1) * n_ndX, :
+            ]
+        return cov_wy
+
+    def _expand_training_covariance(self, X_new=None, dX_new=None):
+        cov_yy_exp = self._expand_cov_yy(X_new)
+        if self._has_gradients and dX_new is not None:
+            cov_ww_exp = self._expand_cov_ww(dX_new)
+            cov_wy_exp = self._expand_cov_wy(X_new, dX_new)
+            training_cov = np.block(
+                [[cov_yy_exp, cov_wy_exp.T], [cov_wy_exp, cov_ww_exp]]
+            )
+        else:
+            training_cov = cov_yy_exp
+        return training_cov
+    
     def _expand_y_cholesky(self, X_new=None, y_new=None, dX_new=None, dy_new=None):
         if self._has_gradients:
             n_oX, n_odX = self.X_train.shape[0], self.dX_train.shape[0]
@@ -906,14 +843,14 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         """Constrained optimization."""
-        if self.optimizer == "L-BFGS-B":
-            res = scipy.optimize.minimize(
-                obj_func, initial_theta, method="L-BFGS-B", jac=True, bounds=bounds
-            )
-            _check_optimize_result("lbfgs", res)
-            best_theta, function_min = res.x, res.fun
-        elif callable(self.optimizer):
-            best_theta, function_min = self.optimizer(obj_func, initial_theta, bounds)
+        initial_fun = obj_func(initial_theta, eval_gradient=False)
+        res = scipy.optimize.minimize(
+            obj_func, initial_theta, method="L-BFGS-B", jac=True, bounds=bounds
+        )
+        _check_optimize_result("lbfgs", res)
+        if not res.success:
+            print("Optimization failed:", res.message)
+            print("Returning initial parameters and function value.")
+            return initial_theta, initial_fun
         else:
-            raise ValueError(f"Unknown optimizer: {self.optimizer}")
-        return best_theta, function_min
+            return res.x, res.fun
