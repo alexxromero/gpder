@@ -1,33 +1,77 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpder"
-version = "1.0.0"
-authors = [{name="Alexis Romero", email="alexir2@uci.edu"}]
+version = "1.0.1"
 description = "Bayesian Experimental Design for Minimizing the Uncertainty of Gaussian Processes"
-readme = "README.md"
+authors = [{name="Alexis Romero", email="alexir2@uci.edu"}]
+license = {text = "MIT"}
 requires-python = ">=3.6"
+readme = "README.md"
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = [
-    "numpy",
-    "scipy",
-    "scikit-learn"]
 
-[tool.hatch.envs.default]
 dependencies = [
     "numpy",
     "scipy",
-    "scikit-learn",
+    "scikit-learn"
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest",
-    "pytest-cov"
-    ]
+    "pytest-cov",
+    "black>=24.0",
+    "isort>=5.0",
+    "flake8>=7.0",
+    "nbqa>=1.0",
+    "codespell>=2.0",
+    "jupyter",
+    "nbconvert",
+    "nbformat",
+]
 
 [project.urls]
 Homepage = "https://github.com/alexxromero/gpder"
 Issues = "https://github.com/alexxromero/gpder/issues"
+
+# ----- Tool Configurations ----- #
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    "build",
+    "dist",
+    ".ipynb_checkpoints"
+]
+
+[tool.nbqa.addopts]
+black = ["--line-length=100"]
+
+[tool.codespell]
+skip = ".git,*.png,*.jpg,*.svg,*.pdf,*.ipynb_checkpoints,dist,build,.mypy_cache,.venv,venv"
+ignore-words-list = "analyse,nd,crate,te,fo"
+
+[tool.pytest.ini_options]
+addopts = "-ra -q"
+testpaths = ["tests"]

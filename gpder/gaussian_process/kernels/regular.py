@@ -1,12 +1,50 @@
 import numpy as np
-from scipy.spatial.distance import pdist, cdist, squareform
-from sklearn.gaussian_process.kernels import StationaryKernelMixin
-from sklearn.gaussian_process.kernels import NormalizedKernelMixin
-from sklearn.gaussian_process.kernels import Kernel
-from sklearn.gaussian_process.kernels import Hyperparameter
+from scipy.spatial.distance import cdist, pdist, squareform
+from sklearn.gaussian_process.kernels import (
+    Hyperparameter,
+    Kernel,
+    NormalizedKernelMixin,
+    StationaryKernelMixin,
+)
 
-__all__ = ["RegularKernel"]
+__all__ = [
+    "RegularKernel",
+    "validate_scalar",
+    "validate_scalar_or_array",
+    "validate_bounds",
+]
 
+def validate_scalar(value, name):
+    """Validate that the value is a scalar."""
+    if not np.isscalar(value):
+        raise ValueError(f"{name} must be a scalar, got {type(value)}")
+    return value
+
+
+def validate_scalar_or_array(value, name):
+    """Validate that the value is a scalar or a 1D array."""
+    if np.isscalar(value):
+        return value
+    if isinstance(value, (np.ndarray, np.generic)):
+        if value.ndim == 1:
+            return value
+        else:
+            raise ValueError(
+                f"{name} must be a scalar or a 1D array, got {type(value)}"
+            )
+    raise ValueError(f"{name} must be a scalar or a 1D array, got {type(value)}")
+
+
+def validate_bounds(bounds, name):
+    """Validate that the bounds are either 'fixed' or a pair of floats."""
+    if bounds == "fixed":
+        return bounds
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 2:
+        lower, upper = bounds
+        if not (np.isscalar(lower) and np.isscalar(upper)):
+            raise ValueError(f"{name} must be a pair of floats, got {bounds}")
+        return bounds
+    raise ValueError(f"{name} must be 'fixed' or a pair of floats, got {bounds}")
 
 class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     """Kernel for regular Gaussian Process Regression (GPR).
@@ -72,16 +110,17 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         noise_level=1e-2,
         noise_level_bounds=(1e-2, 1e4),
     ):
-        self.amplitude = amplitude
-        self.amplitude_bounds = amplitude_bounds
-        self.length_scale = length_scale
-        self.length_scale_bounds = length_scale_bounds
-        if noise_level is None:
-            self.noise_level = 0.0
-            self.noise_level_bounds = "fixed"
-        else:
-            self.noise_level = noise_level
-            self.noise_level_bounds = noise_level_bounds
+        self.amplitude = validate_scalar(amplitude, "amplitude")
+        self.amplitude_bounds = validate_bounds(amplitude_bounds, "amplitude_bounds")
+        self.length_scale = validate_scalar_or_array(length_scale, "length_scale")
+        self.length_scale_bounds = validate_bounds(
+            length_scale_bounds, "length_scale_bounds"
+        )
+        noise_level = noise_level if noise_level is not None else 0.0
+        self.noise_level = validate_scalar(noise_level, "noise_level")
+        self.noise_level_bounds = validate_bounds(
+            noise_level_bounds, "noise_level_bounds"
+        )
 
     @property
     def hyperparameter_amplitude(self):
@@ -107,15 +146,18 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def hyperparameter_noise_level(self):
         return Hyperparameter("noise_level", "numeric", self.noise_level_bounds)
 
-    def __call__(self, X, Y=None, eval_gradient=False):
+    def __call__(self, X, Y=None, add_noise=True, eval_gradient=False):
         """Returns the kernel and optionally its gradients.
 
         Parameters
         ----------
-        X: ndarray of shape (n_samples_X, n_features)
+        X: ndarray of shape (n_sampX, n_feat)
 
-        Y: ndarray of shape (n_samples_Y, n_features), default=None
+        Y: ndarray of shape (n_sampY, n_feat), default=None
             If None, k(X, X) is evaluated instead.
+
+        add_noise: bool, default=True
+            If True, the white noise is added to the diagonal of the kernel.
 
         eval_gradient: bool, default=False
             If True, the gradients with respect to the log of the
@@ -123,98 +165,99 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         Returns
         -------
-        K: ndarray of shape (n_samples_X, n_samples_Y)
+        K: ndarray of shape (n_sampX, n_sampY)
             Kernel K(X, Y)
 
-        K_gradient: ndarray of shape (n_samples_X, n_samples_X, n_hyperparams)
+        K_gradient: ndarray of shape (n_sampX, n_sampX, n_hyperparams)
             The gradient of the kernel k(X, X) with respect to the
             hyperparameters of the kernel. Only returned when eval_gradient
             is True.
         """
         self._check_length_scale(X, self.length_scale)
 
-        return self._cov_yy(X, Y, eval_gradient=eval_gradient)
+        return self._cov_yy(X, Y=Y, add_noise=add_noise, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
+        ls = self.length_scale
+
         if Y is None:
-            dists2 = pdist(X / self.length_scale, metric="sqeuclidean")
+            dists2 = pdist(X / ls, metric="sqeuclidean")
             K = np.exp(-0.5 * dists2)
             K = squareform(K)
             np.fill_diagonal(K, 1)
             return K
         else:
-            dists2 = cdist(
-                X / self.length_scale, Y / self.length_scale, metric="sqeuclidean"
-            )
+            dists2 = cdist(X / ls, Y / ls, metric="sqeuclidean")
             return np.exp(-0.5 * dists2)
 
-    def _cov_yy(self, X, Y=None, add_noise=True, eval_gradient=False):
+    def _cov_yy(self, X, add_noise, Y=None, eval_gradient=False):
+        amp = self.amplitude
+        ls = self.length_scale
+        noise = self.noise_level
+
         if Y is None:
             (n_samples, _) = X.shape
-            K = self.amplitude**2 * self._rbf(X)
-            if add_noise and self.noise_level:
-                K += self.noise_level**2 * np.eye(n_samples)
 
-            if eval_gradient:
-                # with respect to the amplitude parameter
-                if self.hyperparameter_amplitude.fixed:
-                    dK_damplitude = np.empty((n_samples, n_samples, 0))
-                else:
-                    dK_damplitude = self._rbf(X)[:, :, np.newaxis]
-                    dK_damplitude *= 2 * self.amplitude
-                # with respect to the length_scale parameter
-                if self.hyperparameter_length_scale.fixed:
-                    dK_dlength_scale = np.empty((n_samples, n_samples, 0))
-                else:
-                    if not self.anisotropic_length_scale:
-                        dists2 = pdist(X / self.length_scale, metric="sqeuclidean")
-                        dists2 = squareform(dists2)
-                        dK_dlength_scale = self.amplitude**2 * dists2
-                        dK_dlength_scale *= self._rbf(X)
-                        dK_dlength_scale = dK_dlength_scale[:, :, np.newaxis]
-                    else:
-                        dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2
-                        dists2 /= self.length_scale**2
-                        dK_dlength_scale = self.amplitude**2 * dists2
-                        dK_dlength_scale *= self._rbf(X)[..., np.newaxis]
-                # with respect to the noise_level parameter
-                if self.hyperparameter_noise_level.fixed:
-                    dK_dnoise_level = np.empty((n_samples, n_samples, 0))
-                else:
-                    dK_dnoise_level = np.eye(n_samples)[:, :, np.newaxis]
-                    dK_dnoise_level *= self.noise_level**2
-                return K, np.concatenate(
-                    (dK_damplitude, dK_dlength_scale, dK_dnoise_level), axis=-1
-                )
-            else:
+            rbf = self._rbf(X)
+            K = amp**2 * rbf
+            if noise > 0 and add_noise:
+                K += noise**2 * np.eye(n_samples)
+
+            if not eval_gradient:
                 return K
+                
+            # gradient with respect to the log amplitude parameter
+            if self.hyperparameter_amplitude.fixed:
+                dK_damp = np.empty((n_samples, n_samples, 0))
+            else:
+                dK_damp = (2 * amp**2 * rbf)[:, :, np.newaxis]
+            # with respect to the log length_scale parameter
+            if self.hyperparameter_length_scale.fixed:
+                dK_dls = np.empty((n_samples, n_samples, 0))
+            else:
+                if not self.anisotropic_length_scale:
+                    dists2 = squareform(pdist(X / ls, metric="sqeuclidean"))
+                    dK_dls = amp**2 * dists2 * rbf
+                    dK_dls = dK_dls[:, :, np.newaxis]
+                else:
+                    dists2 = (X[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2
+                    dists2 /= ls**2
+                    dK_dls = amp**2 * rbf[..., np.newaxis] * dists2
+            # with respect to the log noise_level parameter
+            if self.hyperparameter_noise_level.fixed:
+                dK_dnoise = np.empty((n_samples, n_samples, 0))
+            else:
+                dK_dnoise = np.eye(n_samples)[:, :, np.newaxis]
+                dK_dnoise *= 2 * noise**2
+            return K, np.concatenate(
+                (dK_damp, dK_dls, dK_dnoise), axis=-1
+            )
         else:
-            (n_samples, _) = X.shape
+            if X.shape[1] != Y.shape[1]:
+                raise ValueError("The number of features of X and Y must be equal.")
             if eval_gradient:
-                raise ValueError("Gradient can only be evaluated when Y " "is None.")
-            K = self.amplitude**2 * self._rbf(X, Y)
-            if add_noise and self.noise_level:
-                K += self.noise_level**2 * np.eye(n_samples)
+                raise ValueError("Gradient can only be evaluated when Y is None.")
+            if add_noise:
+                raise ValueError("Noise can only be added when Y is None.")
+            K = amp**2 * self._rbf(X, Y)
             return K
 
     def _check_length_scale(self, X, length_scale):
         """Check the length_scale parameter."""
         if np.ndim(length_scale) == 1 and X.shape[1] != length_scale.shape[0]:
             raise ValueError(
-                "Anisotropic kernels must have the same number of"
-                "dimensions as data (%d!=%d)" % (length_scale.shape[0], X.shape[1])
+                f"Anisotropic kernels must have the same number of "
+                f"dimensions as data ({length_scale.shape[0]}!={X.shape[1]})"
             )
 
     def __repr__(self):
         if self.anisotropic_length_scale:
-            description = "{0:.3g}**2 * RBF(length_scale=[{1}])".format(
-                self.amplitude, ", ".join(map("{0:.3g}".format, self.length_scale))
-            )
+            scales = ", ".join(f"{s:.3g}" for s in self.length_scale)
+            description = f"{self.amplitude:.3g}**2 * RBF(length_scale=[{scales}])"
         else:
-            description = "{0:.3g}**2 * RBF(length_scale={1:.3g})".format(
-                self.amplitude, np.ravel(self.length_scale)[0]
-            )
-        description += " + WhiteKernel(noise_level={0:.3g})".format(self.noise_level)
+            ls0 = np.ravel(self.length_scale)[0]
+            description = f"{self.amplitude:.3g}**2 * RBF(length_scale={ls0:.3g})"
+        description += f" + WhiteKernel(noise_level={self.noise_level:.3g})"
         return description
 
     def _repr_latex_(self):
