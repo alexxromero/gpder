@@ -75,7 +75,7 @@ jobs:
       - name: codespell
         run: |
           # Adjust ignore list as needed for domain-specific words
-          codespell \
+          uv run codespell \
             -S ".git,*.png,*.jpg,*.svg,*.pdf,*.ipynb_checkpoints,dist,build,.mypy_cache,.venv,venv" \
             -L analyse,nd,crate,te,fo
             
