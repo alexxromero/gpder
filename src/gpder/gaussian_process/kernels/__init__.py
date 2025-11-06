@@ -1,5 +1,3 @@
-from . import regular
-from . import derivative
-
-from .regular import RegularKernel
+from . import derivative, regular
 from .derivative import DerivativeKernel
+from .regular import RegularKernel

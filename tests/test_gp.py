@@ -1,9 +1,10 @@
 import unittest
+
 import numpy as np
 
 import gpder
 from gpder.gaussian_process import GaussianProcessRegressor
-from gpder.gaussian_process.kernels import RegularKernel, DerivativeKernel
+from gpder.gaussian_process.kernels import DerivativeKernel, RegularKernel
 
 
 class TestRegularKernel(unittest.TestCase):

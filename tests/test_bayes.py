@@ -1,9 +1,10 @@
 import unittest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
 
 import gpder
-from gpder.bayes import NetVarianceLoss, GPUncertaintyOptimizer
+from gpder.bayes import GPUncertaintyOptimizer, NetVarianceLoss
 from gpder.gaussian_process import GaussianProcessRegressor
 from gpder.gaussian_process.kernels import RegularKernel
 
