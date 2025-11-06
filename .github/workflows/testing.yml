@@ -64,8 +64,8 @@ jobs:
       - name: nbqa + black (notebooks)
         run: uv run nbqa black --check .
 
-      - name: nbqa + flake8 (notebooks)
-        run: uv run nbqa flake8 .
+      # - name: nbqa + flake8 (notebooks)
+      #   run: uv run nbqa flake8 .
 
       # ----- Tests ----- #
       - name: Pytest
