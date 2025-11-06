@@ -42,7 +42,7 @@ class TestRegularKernel(unittest.TestCase):
     def test_call(self):
         X = np.array([[1.0, 2.0], [3.0, 4.0]])
         Y = np.array([[5.0, 6.0], [7.0, 8.0]])
-        K = self.kernel(X, Y, eval_gradient=False)
+        K = self.kernel(X=X, Y=Y, eval_gradient=False)
         _, grad = self.kernel(X, eval_gradient=True)
         self.assertEqual(K.shape, (2, 2))
         self.assertEqual(grad.shape, (2, 2, 3))

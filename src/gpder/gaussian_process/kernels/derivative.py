@@ -180,13 +180,6 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         if dX is None:
             dX = X
-            if add_noise:
-                warnings.warn(
-                    "dX is None. Setting dX = X. "
-                    "Note that adding noise to cross-covariance operations "
-                    "may lead to an ill-conditioned kernel matrix.",
-                    UserWarning,
-                )
         return self._kernel_hybrid(X, dX=dX, idx=idx, add_noise=add_noise, eval_gradient=eval_gradient)
 
     def _rbf(self, X, Y=None):
@@ -264,7 +257,10 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 raise ValueError("Grad can only be evaluated when Y is None.")
             if add_noise:
-                raise ValueError("Noise is only added when Y is None.")
+                warnings.warn(
+                    "Warning: noise is not added when Y is not None.",
+                    UserWarning,
+                )
             return amp**2 * self._rbf(X, Y)
 
     def _cov_ww(self, dX, add_noise, dy=None, idx=None, eval_gradient=False):
@@ -277,7 +273,11 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 raise ValueError("Gradient can only be evaluated when dy is None.")
             if add_noise:
-                raise ValueError("Noise can only be added when dy is None.")
+                warnings.warn(
+                    "Warning: noise is not added when dY is not None.",
+                    UserWarning,
+                )
+                add_noise = False
 
         (n_sampdX, n_featdX) = dX.shape
         (n_sampdY, _) = dy.shape
@@ -288,9 +288,10 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         if not self.anisotropic_length_scale:
             ls = np.repeat(ls, n_featdX)
 
-        noise_der = np.array(self.noise_level_der)
-        if not self.anisotropic_noise_level_der:
-            noise_der = np.repeat(noise_der, n_featdX)
+        if add_noise and self.noise_level_der > 0:
+            noise_der = np.array(self.noise_level_der)
+            if not self.anisotropic_noise_level_der:
+                noise_der = np.repeat(noise_der, n_featdX)
 
         grad_idx = np.arange(dX.shape[1]) if idx is None else idx
         

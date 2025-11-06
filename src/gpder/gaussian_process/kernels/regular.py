@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.spatial.distance import cdist, pdist, squareform
 from sklearn.gaussian_process.kernels import (
@@ -238,7 +240,10 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             if eval_gradient:
                 raise ValueError("Gradient can only be evaluated when Y is None.")
             if add_noise:
-                raise ValueError("Noise can only be added when Y is None.")
+                warnings.warn(
+                    "Warning: noise is not added when Y is not None.",
+                    UserWarning,
+                )
             K = amp**2 * self._rbf(X, Y)
             return K
 

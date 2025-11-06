@@ -8,7 +8,7 @@ Project-URL: Homepage, https://github.com/alexxromero/gpder
 Project-URL: Issues, https://github.com/alexxromero/gpder/issues
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.6
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: numpy
