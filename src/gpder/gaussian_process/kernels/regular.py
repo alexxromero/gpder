@@ -16,6 +16,7 @@ __all__ = [
     "validate_bounds",
 ]
 
+
 def validate_scalar(value, name):
     """Validate that the value is a scalar."""
     if not np.isscalar(value):
@@ -31,9 +32,7 @@ def validate_scalar_or_array(value, name):
         if value.ndim == 1:
             return value
         else:
-            raise ValueError(
-                f"{name} must be a scalar or a 1D array, got {type(value)}"
-            )
+            raise ValueError(f"{name} must be a scalar or a 1D array, got {type(value)}")
     raise ValueError(f"{name} must be a scalar or a 1D array, got {type(value)}")
 
 
@@ -47,6 +46,7 @@ def validate_bounds(bounds, name):
             raise ValueError(f"{name} must be a pair of floats, got {bounds}")
         return bounds
     raise ValueError(f"{name} must be 'fixed' or a pair of floats, got {bounds}")
+
 
 class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     """Kernel for regular Gaussian Process Regression (GPR).
@@ -115,14 +115,10 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         self.amplitude = validate_scalar(amplitude, "amplitude")
         self.amplitude_bounds = validate_bounds(amplitude_bounds, "amplitude_bounds")
         self.length_scale = validate_scalar_or_array(length_scale, "length_scale")
-        self.length_scale_bounds = validate_bounds(
-            length_scale_bounds, "length_scale_bounds"
-        )
+        self.length_scale_bounds = validate_bounds(length_scale_bounds, "length_scale_bounds")
         noise_level = noise_level if noise_level is not None else 0.0
         self.noise_level = validate_scalar(noise_level, "noise_level")
-        self.noise_level_bounds = validate_bounds(
-            noise_level_bounds, "noise_level_bounds"
-        )
+        self.noise_level_bounds = validate_bounds(noise_level_bounds, "noise_level_bounds")
 
     @property
     def hyperparameter_amplitude(self):
@@ -207,7 +203,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
             if not eval_gradient:
                 return K
-                
+
             # gradient with respect to the log amplitude parameter
             if self.hyperparameter_amplitude.fixed:
                 dK_damp = np.empty((n_samples, n_samples, 0))
@@ -231,9 +227,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             else:
                 dK_dnoise = np.eye(n_samples)[:, :, np.newaxis]
                 dK_dnoise *= 2 * noise**2
-            return K, np.concatenate(
-                (dK_damp, dK_dls, dK_dnoise), axis=-1
-            )
+            return K, np.concatenate((dK_damp, dK_dls, dK_dnoise), axis=-1)
         else:
             if X.shape[1] != Y.shape[1]:
                 raise ValueError("The number of features of X and Y must be equal.")

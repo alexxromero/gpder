@@ -17,6 +17,7 @@ from gpder.gaussian_process.kernels.regular import (
 
 __all__ = ["DerivativeKernel"]
 
+
 class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     """Kernel for Gaussian Process Regression (GPR) with derivative observations.
     This kernel is a modification of the RegularKernel.
@@ -84,18 +85,12 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         self.amplitude = validate_scalar(amplitude, "amplitude")
         self.amplitude_bounds = validate_bounds(amplitude_bounds, "amplitude_bounds")
         self.length_scale = validate_scalar_or_array(length_scale, "length_scale")
-        self.length_scale_bounds = validate_bounds(
-            length_scale_bounds, "length_scale_bounds"
-        )
+        self.length_scale_bounds = validate_bounds(length_scale_bounds, "length_scale_bounds")
         noise_level = noise_level if noise_level is not None else 0.0
         self.noise_level = validate_scalar(noise_level, "noise_level")
-        self.noise_level_bounds = validate_bounds(
-            noise_level_bounds, "noise_level_bounds"
-        )
+        self.noise_level_bounds = validate_bounds(noise_level_bounds, "noise_level_bounds")
         noise_level_der = noise_level_der if noise_level_der is not None else 0.0
-        self.noise_level_der = validate_scalar_or_array(
-            noise_level_der, "noise_level_der"
-        )
+        self.noise_level_der = validate_scalar_or_array(noise_level_der, "noise_level_der")
         self.noise_level_der_bounds = validate_bounds(
             noise_level_der_bounds, "noise_level_der_bounds"
         )
@@ -138,9 +133,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 len(self.noise_level_der),
             )
         else:
-            return Hyperparameter(
-                "noise_level_der", "numeric", self.noise_level_der_bounds
-            )
+            return Hyperparameter("noise_level_der", "numeric", self.noise_level_der_bounds)
 
     def __call__(self, X, dX=None, add_noise=True, idx=None, eval_gradient=False):
         """Returns the kernel and optionally its gradients.
@@ -166,11 +159,11 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         Returns
         -------
-        K: ndarray of shape 
+        K: ndarray of shape
            (n_sampX + n_sampdX * n_featdX, n_sampX + n_sampdX * n_featdX)
             Kernel.
 
-        K_gradient: ndarray of shape 
+        K_gradient: ndarray of shape
             (n_sampX + n_sampdX * n_featdX, n_sampX + n_sampdX * n_featdX, n_params)
             The gradient of the kernel with respect to the
             hyperparameters of the kernel. Only returned when eval_gradient
@@ -180,7 +173,9 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
         if dX is None:
             dX = X
-        return self._kernel_hybrid(X, dX=dX, idx=idx, add_noise=add_noise, eval_gradient=eval_gradient)
+        return self._kernel_hybrid(
+            X, dX=dX, idx=idx, add_noise=add_noise, eval_gradient=eval_gradient
+        )
 
     def _rbf(self, X, Y=None):
         ls = self.length_scale
@@ -212,7 +207,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
             if not eval_gradient:
                 return K
-            
+
             (
                 dK_damp,
                 dK_dls,
@@ -250,7 +245,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 ),
                 axis=-1,
             )
-        
+
         else:
             if X.shape[1] != Y.shape[1]:
                 raise ValueError("The number of features of X and Y must be equal.")
@@ -294,15 +289,13 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 noise_der = np.repeat(noise_der, n_featdX)
 
         grad_idx = np.arange(dX.shape[1]) if idx is None else idx
-        
+
         rbf = self._rbf(dX, dy)
 
         K = np.zeros((n_sampdX * len(grad_idx), n_sampdY * len(grad_idx)))
         if eval_gradient:
-            (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der) = (
-                self._initialize_gradients(
-                    (n_sampdX * len(grad_idx), n_sampdY * len(grad_idx))
-                )
+            (dK_damp, dK_dls, dK_dnoise, dK_dnoise_der) = self._initialize_gradients(
+                (n_sampdX * len(grad_idx), n_sampdY * len(grad_idx))
             )
 
         for i, i_dim in enumerate(grad_idx):
@@ -347,9 +340,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                             dist2 /= ls**2
                             d1 = coeff[..., np.newaxis] * dist2 * rbf[..., np.newaxis]
                             dcoeff = 4 * (dist_i * dist_j)
-                            dcoeff = np.repeat(
-                                dcoeff[:, :, np.newaxis], n_featdX, axis=2
-                            )
+                            dcoeff = np.repeat(dcoeff[:, :, np.newaxis], n_featdX, axis=2)
                             dcoeff -= 2 * float(i_dim == j_dim) * (1.0 / ls**2)
                             d2 = dcoeff * rbf[..., np.newaxis]
                         dK_dls[
@@ -363,20 +354,14 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                         if i_dim == j_dim:
                             if not self.anisotropic_noise_level_der:
                                 noise_grad = (
-                                    2
-                                    * noise_der[i_dim] ** 2
-                                    * np.eye(n_sampdX, n_sampdY)
+                                    2 * noise_der[i_dim] ** 2 * np.eye(n_sampdX, n_sampdY)
                                 )[..., np.newaxis]
                                 dK_dnoise_der[
                                     i * n_sampdX : (i + 1) * n_sampdX,
                                     j * n_sampdY : (j + 1) * n_sampdY,
                                 ] = noise_grad
                             else:
-                                noise_grad = (
-                                    2
-                                    * noise_der[i_dim] ** 2
-                                    * np.eye(n_sampdX, n_sampdY)
-                                )
+                                noise_grad = 2 * noise_der[i_dim] ** 2 * np.eye(n_sampdX, n_sampdY)
                                 dK_dnoise_der[
                                     i * n_sampdX : (i + 1) * n_sampdX,
                                     j * n_sampdY : (j + 1) * n_sampdY,
@@ -423,9 +408,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                 # with respect to the log amplitude parameter
                 if not self.hyperparameter_amplitude.fixed:
                     dK_i_amp = -2.0 * amp**2 * dist_i_scl * rbf
-                    dK_damp[i * n_sampdX : (i + 1) * n_sampdX, :] = dK_i_amp[
-                        :, :, np.newaxis
-                    ]
+                    dK_damp[i * n_sampdX : (i + 1) * n_sampdX, :] = dK_i_amp[:, :, np.newaxis]
 
                 # with respect to the log length_scale parameter
                 if not self.hyperparameter_length_scale.fixed:
@@ -443,9 +426,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                         dist2 /= ls**2
                         d1 = -1.0 * dist_i_scl[..., np.newaxis] * dist2
                         d1 *= rbf[..., np.newaxis]
-                        dcoeff = 2.0 * np.repeat(
-                            dist_i[..., np.newaxis], n_feat_Y, axis=2
-                        )
+                        dcoeff = 2.0 * np.repeat(dist_i[..., np.newaxis], n_feat_Y, axis=2)
                         dcoeff /= ls**2
                         d2 = dcoeff * rbf[..., np.newaxis]
                     dK_dls[i * n_sampdX : (i + 1) * n_sampdX, :] = amp**2 * (d1 + d2)
@@ -459,7 +440,6 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
             )
         else:
             return K
-
 
     def _kernel_hybrid(self, X, dX, add_noise, idx=None, eval_gradient=False):
         """Returns the composite covariance between function and derivative observations,
@@ -497,15 +477,9 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
         def alloc(fixed: bool, size: int):
             return np.empty(dims + (0,)) if fixed else np.zeros(dims + (size,))
 
-        ls_size = (
-            1
-            if not self.anisotropic_length_scale
-            else np.atleast_1d(self.length_scale).size
-        )
+        ls_size = 1 if not self.anisotropic_length_scale else np.atleast_1d(self.length_scale).size
         nld_size = (
-            1
-            if not self.anisotropic_noise_level_der
-            else np.atleast_1d(self.noise_level_der).size
+            1 if not self.anisotropic_noise_level_der else np.atleast_1d(self.noise_level_der).size
         )
 
         dK_damp = alloc(self.hyperparameter_amplitude.fixed, 1)
@@ -523,14 +497,10 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     def __repr__(self):
         if not self.anisotropic_length_scale:
             ls0 = np.ravel(self.length_scale)[0]
-            desc = (
-                f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale={ls0:.3g})"
-            )
+            desc = f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale={ls0:.3g})"
         else:
             scales = ", ".join(f"{s:.3g}" for s in self.length_scale)
-            desc = (
-                f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale=[{scales}])"
-            )
+            desc = f"{self.amplitude:.3g}**2 * " f"DerivativeRBF(length_scale=[{scales}])"
 
         desc += f" + WhiteKernel(noise_level={self.noise_level:.3g})"
 

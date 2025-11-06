@@ -41,22 +41,16 @@ class TestGPUncertaintyOptimizer(unittest.TestCase):
         self.X_next_dummy = np.array([[1.0, 2.0], [3.0, 4.0]])
         self.neg_util_dummy = np.array([1.0])
         self.function = MagicMock(return_value=np.array([1.0]))
-        self.bayes_opt = GPUncertaintyOptimizer(
-            self.mock_gp, self.bounds, self.function
-        )
+        self.bayes_opt = GPUncertaintyOptimizer(self.mock_gp, self.bounds, self.function)
         self.bayes_opt.verbose = False
 
     def test_minimize_variance_setup(self):
-        self.bayes_opt._find_next = MagicMock(
-            return_value=(self.X_next_dummy, self.neg_util_dummy)
-        )
+        self.bayes_opt._find_next = MagicMock(return_value=(self.X_next_dummy, self.neg_util_dummy))
         self.bayes_opt.minimize_variance(self.X_util, n_iters=1)
         self.mock_gp.update.assert_called_once()
 
     def test_acq_fun_usage(self):
-        self.bayes_opt._find_next = MagicMock(
-            return_value=(self.X_next_dummy, self.neg_util_dummy)
-        )
+        self.bayes_opt._find_next = MagicMock(return_value=(self.X_next_dummy, self.neg_util_dummy))
         self.bayes_opt.minimize_variance(self.X_util, n_iters=1)
         self.function.assert_called_once()
 

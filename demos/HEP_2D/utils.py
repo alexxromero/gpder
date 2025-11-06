@@ -3,15 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 
+
 def download_dataset():
     # Download here or directly from zenodo. DOI: 10.5281/zenodo.10971439
     # url: https://zenodo.org/records/10971439
     # by default, the data is saved in the current directory
     try:
         import zenodo_get
-        os.system('zenodo_get -d 10.5281/zenodo.10971439')
+
+        os.system("zenodo_get -d 10.5281/zenodo.10971439")
     except:
-        print("Downloading the dataset failed. Please download the dataset manually from zenodo. DOI: 10.5281/zenodo.10971439")
+        print(
+            "Downloading the dataset failed. Please download the dataset manually from zenodo. DOI: 10.5281/zenodo.10971439"
+        )
+
 
 def load_dataset():
     filename = "./three_jets_30k.h5"
@@ -21,6 +26,7 @@ def load_dataset():
         J3_threeM = np.array(f["j3_threeM"])
         threeM = np.stack((J1_threeM, J2_threeM, J3_threeM), axis=1)
     return threeM
+
 
 def calculate_mse_uncertainty(gp_model, X_test, y_test, batch_size=512):
     """Calculate the mean squared error and the net predictive variance of
@@ -38,6 +44,7 @@ def calculate_mse_uncertainty(gp_model, X_test, y_test, batch_size=512):
         cov_trace += np.trace(cov_batch)
     mse = np.mean((y_test - y_pred) ** 2)
     return mse, cov_trace
+
 
 def plot_regression(gp_model, X_test, y_test, X_train_init=5):
     y_pred, y_std = gp_model.predict(X_test, return_std=True)
@@ -79,7 +86,7 @@ def plot_regression(gp_model, X_test, y_test, X_train_init=5):
     ax[1].set_ylabel(r"$\nu_{J23}$")
 
     im2 = ax[2].imshow(
-        y_std.reshape(res_test, res_test),  
+        y_std.reshape(res_test, res_test),
         origin="upper",
         extent=(X_lower, X_upper, X_lower, X_upper),
         cmap="Oranges",
@@ -90,19 +97,27 @@ def plot_regression(gp_model, X_test, y_test, X_train_init=5):
     ax[2].set_ylabel(r"$\nu_{J23}$")
 
     if len(X_train) > X_train_init:
-        ax[1].scatter(X_train[:X_train_init, 0], X_train[:X_train_init, 1], 
-                      color="r", s=10, label="Initial training data")
-        ax[1].scatter(X_train[X_train_init:, 0], X_train[X_train_init:, 1], 
-                      color="hotpink", s=10, label="BED-selected training data")
-        
-        ax[2].scatter(X_train[:X_train_init, 0], X_train[:X_train_init, 1], 
-                      color="r", s=10)
-        ax[2].scatter(X_train[X_train_init:, 0], X_train[X_train_init:, 1], 
-                      color="hotpink", s=10)
-     
+        ax[1].scatter(
+            X_train[:X_train_init, 0],
+            X_train[:X_train_init, 1],
+            color="r",
+            s=10,
+            label="Initial training data",
+        )
+        ax[1].scatter(
+            X_train[X_train_init:, 0],
+            X_train[X_train_init:, 1],
+            color="hotpink",
+            s=10,
+            label="BED-selected training data",
+        )
+
+        ax[2].scatter(X_train[:X_train_init, 0], X_train[:X_train_init, 1], color="r", s=10)
+        ax[2].scatter(X_train[X_train_init:, 0], X_train[X_train_init:, 1], color="hotpink", s=10)
+
         ax[1].legend(loc=(-0.5, 1.3), ncol=2)
     else:
         ax[1].scatter(X_train[:, 0], X_train[:, 1], color="r", s=10, label="Training data")
         ax[2].scatter(X_train[:, 0], X_train[:, 1], color="r", s=10)
-        
+
     plt.show()

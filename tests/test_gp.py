@@ -86,12 +86,8 @@ class TestDerivativeKernel(unittest.TestCase):
         self.assertEqual(self.kernel.hyperparameter_noise_level.bounds[0][1], 1e4)
 
     def test_hyperparameter_noise_level_der(self):
-        self.assertEqual(
-            self.kernel.hyperparameter_noise_level_der.name, "noise_level_der"
-        )
-        self.assertEqual(
-            self.kernel.hyperparameter_noise_level_der.value_type, "numeric"
-        )
+        self.assertEqual(self.kernel.hyperparameter_noise_level_der.name, "noise_level_der")
+        self.assertEqual(self.kernel.hyperparameter_noise_level_der.value_type, "numeric")
         self.assertEqual(self.kernel.hyperparameter_noise_level_der.bounds[0][0], 1e-2)
         self.assertEqual(self.kernel.hyperparameter_noise_level_der.bounds[0][1], 1e4)
 
@@ -140,12 +136,8 @@ class TestGaussianProcessRegressor(unittest.TestCase):
         dy_new = np.array([[15.0, 16.0], [17.0, 18.0], [19.0, 20.0]])
         self.regular_gp.fit(self.X_train, self.y_train)
         self.regular_gp.update(X_new, y_new)
-        self.assertEqual(
-            self.regular_gp.X_train.shape, (self.X_train.shape[0] + X_new.shape[0], 2)
-        )
-        self.assertEqual(
-            self.regular_gp.y_train.shape, (self.X_train.shape[0] + X_new.shape[0], 1)
-        )
+        self.assertEqual(self.regular_gp.X_train.shape, (self.X_train.shape[0] + X_new.shape[0], 2))
+        self.assertEqual(self.regular_gp.y_train.shape, (self.X_train.shape[0] + X_new.shape[0], 1))
 
         self.derivative_gp.fit(self.X_train, self.y_train, self.X_train, self.dy_train)
         self.derivative_gp.update(X_new, y_new, X_new, dy_new)
@@ -183,9 +175,7 @@ class TestGaussianProcessRegressor(unittest.TestCase):
 
     def test_predict_gradients(self):
         self.derivative_gp.fit(self.X_train, self.y_train, self.X_train, self.dy_train)
-        dy_pred, dy_std = self.derivative_gp.predict_gradients(
-            self.X_test, return_std=True
-        )
+        dy_pred, dy_std = self.derivative_gp.predict_gradients(self.X_test, return_std=True)
         _, dy_cov = self.derivative_gp.predict_gradients(self.X_test, return_cov=True)
         self.assertEqual(dy_pred.shape, (4 * 2, 1))
         self.assertEqual(dy_std.shape, (4 * 2, 1))
@@ -209,9 +199,7 @@ class TestGaussianProcessRegressor(unittest.TestCase):
 class TestGPIntegration(unittest.TestCase):
     def setUp(self):
         reg_kernel = RegularKernel(amplitude=1, length_scale=2, noise_level=3)
-        der_kernel = DerivativeKernel(
-            amplitude=1, length_scale=2, noise_level=3, noise_level_der=4
-        )
+        der_kernel = DerivativeKernel(amplitude=1, length_scale=2, noise_level=3, noise_level_der=4)
         self.regular_gp = GaussianProcessRegressor(kernel=reg_kernel)
         self.derivative_gp = GaussianProcessRegressor(kernel=der_kernel)
         # dummy data for testing
@@ -243,9 +231,7 @@ class TestGPIntegration(unittest.TestCase):
 
     def test_noise_level(self):
         kernel_high_noise = RegularKernel(amplitude=1, length_scale=1, noise_level=10.0)
-        gp_high_noise = GaussianProcessRegressor(
-            kernel=kernel_high_noise, optimizer=None
-        )
+        gp_high_noise = GaussianProcessRegressor(kernel=kernel_high_noise, optimizer=None)
         gp_high_noise.fit(self.X_train, self.y_train)
         _, y_std_high_noise = gp_high_noise.predict(self.X_test, return_std=True)
 

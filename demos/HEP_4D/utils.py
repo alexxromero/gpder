@@ -4,15 +4,20 @@ import matplotlib.pyplot as plt
 import h5py
 import itertools
 
+
 def download_dataset():
     # Download here or directly from zenodo. DOI: 10.5281/zenodo.10971439
     # url: https://zenodo.org/records/10971439
     # by default, the data is saved in the current directory
     try:
         import zenodo_get
-        os.system('zenodo_get -d 10.5281/zenodo.10971439')
+
+        os.system("zenodo_get -d 10.5281/zenodo.10971439")
     except:
-        print("Downloading the dataset failed. Please download the dataset manually from zenodo. DOI: 10.5281/zenodo.10971439")
+        print(
+            "Downloading the dataset failed. Please download the dataset manually from zenodo. DOI: 10.5281/zenodo.10971439"
+        )
+
 
 def load_dataset():
     filename = "./three_jets_30k.h5"
@@ -22,6 +27,7 @@ def load_dataset():
         J3_threeM = np.array(f["j3_threeM"])
         threeM = np.stack((J1_threeM, J2_threeM, J3_threeM), axis=1)
     return threeM
+
 
 def calculate_mse_uncertainty(gp_model, X_test, y_test, batch_size=512):
     """Calculate the mean squared error and the net predictive variance of
@@ -40,6 +46,7 @@ def calculate_mse_uncertainty(gp_model, X_test, y_test, batch_size=512):
     mse = np.mean((y_test - y_pred) ** 2)
     return mse, cov_trace
 
+
 def predict_mean_std(gp_model, X_test, batch_size=512):
     n_batches = int(np.ceil(len(X_test) / batch_size))
     y_pred = np.zeros(len(X_test))
@@ -53,8 +60,9 @@ def predict_mean_std(gp_model, X_test, batch_size=512):
         std[low:high] = std_batch.ravel()
     return y_pred, std
 
+
 def plot_regression(gp_model, X_test, y_test, X_train_init=9):
-    res_test = int(len(y_test) ** (1/4))
+    res_test = int(len(y_test) ** (1 / 4))
     X_lower = np.min(X_test[:, 0])
     X_upper = np.max(X_test[:, 0])
     y_pred_mean, y_pred_std = predict_mean_std(gp_model, X_test)
@@ -74,9 +82,7 @@ def plot_regression(gp_model, X_test, y_test, X_train_init=9):
     val = [0.5]
 
     for i, fixed_params in enumerate(param_combinations):
-        ix = np.where(
-            (X_test[:, fixed_params[0]] == val) & (X_test[:, fixed_params[1]] == val)
-        )
+        ix = np.where((X_test[:, fixed_params[0]] == val) & (X_test[:, fixed_params[1]] == val))
         # -- truth -- #
         vmin = np.min(y_test[ix])
         vmax = np.max(y_test[ix])
@@ -129,23 +135,42 @@ def plot_regression(gp_model, X_test, y_test, X_train_init=9):
 
         if len(X_train) > X_train_init:
             axs[i][1].scatter(
-                X_train[:X_train_init, fixed_params[0]], X_train[:X_train_init, fixed_params[1]], c="red", s=10,
-                label="Initial training data"
+                X_train[:X_train_init, fixed_params[0]],
+                X_train[:X_train_init, fixed_params[1]],
+                c="red",
+                s=10,
+                label="Initial training data",
             )
             axs[i][1].scatter(
-                X_train[X_train_init:, fixed_params[0]], X_train[X_train_init:, fixed_params[1]], c="hotpink", s=10,
-                label="BED-selected training data"
+                X_train[X_train_init:, fixed_params[0]],
+                X_train[X_train_init:, fixed_params[1]],
+                c="hotpink",
+                s=10,
+                label="BED-selected training data",
             )
             axs[i][2].scatter(
-                X_train[:X_train_init, fixed_params[0]], X_train[:X_train_init, fixed_params[1]], c="red", s=10
+                X_train[:X_train_init, fixed_params[0]],
+                X_train[:X_train_init, fixed_params[1]],
+                c="red",
+                s=10,
             )
             axs[i][2].scatter(
-                X_train[X_train_init:, fixed_params[0]], X_train[X_train_init:, fixed_params[1]], c="hotpink", s=10
+                X_train[X_train_init:, fixed_params[0]],
+                X_train[X_train_init:, fixed_params[1]],
+                c="hotpink",
+                s=10,
             )
         else:
-            axs[i][1].scatter(X_train[:, fixed_params[0]], X_train[:, fixed_params[1]], c="red", s=10, label="Training data")
-            axs[i][2].scatter(X_train[:, fixed_params[0]], X_train[:, fixed_params[1]], c="red", s=10)
-
+            axs[i][1].scatter(
+                X_train[:, fixed_params[0]],
+                X_train[:, fixed_params[1]],
+                c="red",
+                s=10,
+                label="Training data",
+            )
+            axs[i][2].scatter(
+                X_train[:, fixed_params[0]], X_train[:, fixed_params[1]], c="red", s=10
+            )
 
     # -- titles -- #
     axs[0][0].text(0.6, 0, "Truth", fontsize=12)

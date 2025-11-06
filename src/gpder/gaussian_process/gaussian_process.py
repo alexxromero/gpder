@@ -191,12 +191,8 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 lower=True,
             )
         except scipy.linalg.LinAlgError as err:
-            raise ValueError(
-                "The kernel is not positive definite. Try increasing kappa."
-            ) from err
-        self._alpha_cholevsky = scipy.linalg.cho_solve(
-            (self._L_cholevsky, True), self._y_cholesky
-        )
+            raise ValueError("The kernel is not positive definite. Try increasing kappa.") from err
+        self._alpha_cholevsky = scipy.linalg.cho_solve((self._L_cholevsky, True), self._y_cholesky)
 
         self.kernel = kernel_opt
         return self
@@ -243,9 +239,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 training_cov + self.kappa * np.eye(training_cov.shape[0]), lower=True
             )
         except scipy.linalg.LinAlgError as err:
-            raise ValueError(
-                "The kernel is not positive definite. Try increasing kappa."
-            ) from err
+            raise ValueError("The kernel is not positive definite. Try increasing kappa.") from err
         alpha_cholevsky = scipy.linalg.cho_solve((L_cholevsky, True), y_cholesky)
 
         if X_train is not None and y_train is not None:
@@ -301,9 +295,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 ]
             )
         else:
-            posterior_cov = self.kernel._cov_yy(
-                X=X_test, Y=self.X_train, add_noise=False
-            )
+            posterior_cov = self.kernel._cov_yy(X=X_test, Y=self.X_train, add_noise=False)
         self._posterior_cov = posterior_cov
 
         y_mean = self._mean_func(X_test)
@@ -367,15 +359,11 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         posterior_cov = np.block(
             [
                 self.kernel._cov_wy(Y=self.X_train, dX=dX_test, idx=self.idx),
-                self.kernel._cov_ww(
-                    dX=dX_test, dy=self.dX_train, idx=self.idx, add_noise=False
-                ),
+                self.kernel._cov_ww(dX=dX_test, dy=self.dX_train, idx=self.idx, add_noise=False),
             ]
         )
 
-        dy_mean = self._der_mean_func(dX_test).reshape(
-            -1, self.y_train.shape[1], order="F"
-        )
+        dy_mean = self._der_mean_func(dX_test).reshape(-1, self.y_train.shape[1], order="F")
         dy_mean += posterior_cov.dot(self._alpha_cholevsky)
 
         if return_std and return_cov:
@@ -478,9 +466,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 training_cov + self.kappa * np.eye(training_cov.shape[0]), lower=True
             )
         except scipy.linalg.LinAlgError:
-            raise ValueError(
-                "The kernel is not positive definite. Try increasing kappa."
-            )
+            raise ValueError("The kernel is not positive definite. Try increasing kappa.")
 
         if self._has_gradients:
             posterior_cov = np.block(
@@ -518,9 +504,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         kernel_star = self.kernel._cov_yy(X=X_test, add_noise=False)
         if return_std:
-            L_inv = scipy.linalg.solve_triangular(
-                L_cholevsky.T, np.eye(L_cholevsky.shape[0])
-            )
+            L_inv = scipy.linalg.solve_triangular(L_cholevsky.T, np.eye(L_cholevsky.shape[0]))
             K_inv = L_inv.dot(L_inv.T)
             std2 = np.copy(np.diag(kernel_star))
             std2 -= np.einsum("ij,ij->i", np.dot(posterior_cov, K_inv), posterior_cov)
@@ -605,17 +589,15 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         n_odX = self.dX_train.shape[0]
         n_ndX = dX_new.shape[0]
 
-        cov_ww_oX = self._training_cov[-n_odX * self._n_dims_der:, 
-                                       -n_odX * self._n_dims_der:]
-        cov_ww_odX_ndX = self.kernel._cov_ww(
-            dX=self.dX_train, dy=dX_new, add_noise=False
-            )
+        cov_ww_oX = self._training_cov[-n_odX * self._n_dims_der :, -n_odX * self._n_dims_der :]
+        cov_ww_odX_ndX = self.kernel._cov_ww(dX=self.dX_train, dy=dX_new, add_noise=False)
         cov_ww_ndX_odX = cov_ww_odX_ndX.T
         cov_ww_ndX = self.kernel._cov_ww(dX=dX_new, add_noise=True)
 
         cov_ww = np.zeros(
             (
-                (n_odX + n_ndX) * self._n_dims_der, (n_odX + n_ndX) * self._n_dims_der,
+                (n_odX + n_ndX) * self._n_dims_der,
+                (n_odX + n_ndX) * self._n_dims_der,
             )
         )
         for i in range(self._n_dims_der):
@@ -626,14 +608,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                     i * n_odX : (i + 1) * n_odX, j * n_odX : (j + 1) * n_odX
                 ]
                 cov_ww[low_i : low_i + n_odX, low_j + n_odX : low_j + n_odX + n_ndX] = (
-                    cov_ww_odX_ndX[
-                        i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX
-                    ]
+                    cov_ww_odX_ndX[i * n_odX : (i + 1) * n_odX, j * n_ndX : (j + 1) * n_ndX]
                 )
                 cov_ww[low_i + n_odX : low_i + n_odX + n_ndX, low_j : low_j + n_odX] = (
-                    cov_ww_ndX_odX[
-                        i * n_ndX : (i + 1) * n_ndX, j * n_odX : (j + 1) * n_odX
-                    ]
+                    cov_ww_ndX_odX[i * n_ndX : (i + 1) * n_ndX, j * n_odX : (j + 1) * n_odX]
                 )
                 cov_ww[
                     low_i + n_odX : low_i + n_odX + n_ndX,
@@ -662,15 +640,11 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         for i in range(self._n_dims_der):
             low = i * (n_odX + n_ndX)
-            cov_wy[low : low + n_odX, :-n_nX] = cov_wy_odX_oX[
-                i * n_odX : (i + 1) * n_odX, :
-            ]
+            cov_wy[low : low + n_odX, :-n_nX] = cov_wy_odX_oX[i * n_odX : (i + 1) * n_odX, :]
             cov_wy[low + n_odX : low + n_odX + n_ndX, :-n_nX] = cov_wy_ndX_oX[
                 i * n_ndX : (i + 1) * n_ndX, :
             ]
-            cov_wy[low : low + n_odX, -n_nX:] = cov_wy_odX_nX[
-                i * n_odX : (i + 1) * n_odX, :
-            ]
+            cov_wy[low : low + n_odX, -n_nX:] = cov_wy_odX_nX[i * n_odX : (i + 1) * n_odX, :]
             cov_wy[low + n_odX : low + n_odX + n_ndX, -n_nX:] = cov_wy_ndX_nX[
                 i * n_ndX : (i + 1) * n_ndX, :
             ]
@@ -681,13 +655,11 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
         if self._has_gradients and dX_new is not None:
             cov_ww_exp = self._expand_cov_ww(dX_new)
             cov_wy_exp = self._expand_cov_wy(X_new, dX_new)
-            training_cov = np.block(
-                [[cov_yy_exp, cov_wy_exp.T], [cov_wy_exp, cov_ww_exp]]
-            )
+            training_cov = np.block([[cov_yy_exp, cov_wy_exp.T], [cov_wy_exp, cov_ww_exp]])
         else:
             training_cov = cov_yy_exp
         return training_cov
-    
+
     def _expand_y_cholesky(self, X_new=None, y_new=None, dX_new=None, dy_new=None):
         if self._has_gradients:
             n_oX, n_odX = self.X_train.shape[0], self.dX_train.shape[0]
@@ -715,9 +687,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             elif X_new is not None:
                 n_nX = X_new.shape[0]
                 y_chol_new = y_new - self._mean_func(X_new)
-                y_cholesky = np.zeros(
-                    (len(self._y_cholesky) + len(X_new), self.y_train.shape[1])
-                )
+                y_cholesky = np.zeros((len(self._y_cholesky) + len(X_new), self.y_train.shape[1]))
                 y_cholesky[:n_oX] = self._y_cholesky[:n_oX]
                 y_cholesky[n_oX : n_oX + n_nX] = y_chol_new
                 y_cholesky[n_oX + n_nX :] = self._y_cholesky[n_oX:]
@@ -770,13 +740,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 return -self._calculate_lml(theta, eval_gradient=False)
 
         # First optimization is evaluated on the initial parameters
-        optima = [
-            (
-                self._constrained_optimization(
-                    obj_func, self.kernel.theta, self.kernel.bounds
-                )
-            )
-        ]
+        optima = [self._constrained_optimization(obj_func, self.kernel.theta, self.kernel.bounds)]
         # Subsequent optimizations are evaluated on parameters drawn from random log-uniform distributions
         if n_restarts > 0:
             if not np.isfinite(self.kernel.bounds).all():
@@ -786,10 +750,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 bounds[:, 0], bounds[:, 1], size=(n_restarts, bounds.shape[0])
             )
             optima.extend(
-                [
-                    self._constrained_optimization(obj_func, theta, bounds)
-                    for theta in theta0
-                ]
+                [self._constrained_optimization(obj_func, theta, bounds) for theta in theta0]
             )
         # Select the theta with minimal neg log marginal likelihood
         lml_values = list(map(lambda x: x[1], optima))
@@ -812,9 +773,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
                 K, K_gradient = kernel(self.X_train, eval_gradient=True)
         else:
             if self._has_gradients:
-                K = kernel(
-                    self.X_train, self.dX_train, idx=self.idx, eval_gradient=False
-                )
+                K = kernel(self.X_train, self.dX_train, idx=self.idx, eval_gradient=False)
             else:
                 K = kernel(self.X_train, eval_gradient=False)
 
@@ -832,9 +791,7 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
 
         if eval_gradient:
             tmp = np.einsum("ik,jk->ijk", alpha_chol, alpha_chol)
-            tmp -= scipy.linalg.cho_solve((L, True), np.eye(K.shape[0]))[
-                :, :, np.newaxis
-            ]
+            tmp -= scipy.linalg.cho_solve((L, True), np.eye(K.shape[0]))[:, :, np.newaxis]
             log_likelihood_grad_dims = 0.5 * np.einsum("ijl,ijk->kl", tmp, K_gradient)
             log_likelihood_grad = log_likelihood_grad_dims.sum(-1)
             return log_likelihood, log_likelihood_grad

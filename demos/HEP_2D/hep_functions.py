@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import expit
 
+
 def at_least_2d(X):
     X = np.asarray(X, dtype=float)
     if X.ndim == 0:
@@ -30,13 +31,15 @@ def MET(nu_J1, nu_J23, threeM):
 
 def efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True):
     """Efficiency of the three-jet events with an MET of less than MET_cut GeVs.
-    X is the array of nuisance parameters. The first column contains the 
-    nuisance parameter for the first (hardest) jet, and the second column the 
+    X is the array of nuisance parameters. The first column contains the
+    nuisance parameter for the first (hardest) jet, and the second column the
     nuisance parameter for the second and third jets.
     """
     X = np.atleast_2d(X)
     nu_J1, nu_J23 = X[:, 0], X[:, 1]
-    ix_pT_cut = (events_threeM[:, 0, 0] / nu_J1 > pT_cut) & (events_threeM[:, 1, 0] / nu_J23 < pT_cut)
+    ix_pT_cut = (events_threeM[:, 0, 0] / nu_J1 > pT_cut) & (
+        events_threeM[:, 1, 0] / nu_J23 < pT_cut
+    )
     MET_vals = MET(nu_J1, nu_J23, events_threeM[ix_pT_cut])
     ix_MET_cut = MET_vals < MET_cut
     eff = np.sum(ix_MET_cut) / np.sum(ix_pT_cut)
@@ -59,19 +62,13 @@ def der_MET(nu_J1, nu_J23, threeM):
     pT_y = threeM[:, :, 0] * np.sin(threeM[:, :, 2]) / nu_J_arr
     dMET = 1.0 / np.sqrt(np.sum(pT_x, axis=1) ** 2 + np.sum(pT_y, axis=1) ** 2)
     # chain rule terms
-    dpT_x_dnu_J = (
-        np.sum(pT_x, axis=1).reshape(-1, 1) * threeM[:, :, 0] * np.cos(threeM[:, :, 2])
-    )
+    dpT_x_dnu_J = np.sum(pT_x, axis=1).reshape(-1, 1) * threeM[:, :, 0] * np.cos(threeM[:, :, 2])
     dpT_x_dnu_J *= -1 / nu_J_arr**2
-    dpT_y_dnu_J = (
-        np.sum(pT_y, axis=1).reshape(-1, 1) * threeM[:, :, 0] * np.sin(threeM[:, :, 2])
-    )
+    dpT_y_dnu_J = np.sum(pT_y, axis=1).reshape(-1, 1) * threeM[:, :, 0] * np.sin(threeM[:, :, 2])
     dpT_y_dnu_J *= -1 / nu_J_arr**2
     # full derivative
     dMET_dnu_J_arr = dMET.reshape(-1, 1) * (dpT_x_dnu_J + dpT_y_dnu_J)
-    return np.stack(
-        (dMET_dnu_J_arr[:, 0], np.sum(dMET_dnu_J_arr[:, 1:], axis=1)), axis=-1
-    )
+    return np.stack((dMET_dnu_J_arr[:, 0], np.sum(dMET_dnu_J_arr[:, 1:], axis=1)), axis=-1)
 
 
 def der_efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True, a=1):
@@ -106,9 +103,7 @@ def der_efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True, a=
 
     # final derivative of the efficiency
     deff_dnuJ = np.sum(dMET_pT_sigmoids_dnuJ, axis=0) / np.sum(pT_sig)
-    deff_dnuJ -= (
-        np.sum(MET_pT_sigmoids) / np.sum(pT_sig) ** 2 * np.sum(dpT_sig_dnuJ, axis=0)
-    )
+    deff_dnuJ -= np.sum(MET_pT_sigmoids) / np.sum(pT_sig) ** 2 * np.sum(dpT_sig_dnuJ, axis=0)
 
     if normalized:
         # using the regular efficiency values for the normalization.

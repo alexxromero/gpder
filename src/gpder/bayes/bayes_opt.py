@@ -100,7 +100,7 @@ class NetVarianceLoss:
                 )
             cov_trace += np.trace(cov)
         return 1 - cov_trace / self.norm
-    
+
     def approx_utility(self, X, batch_size=512):
         """Approximate utility function using cached values.
         It relies on the trace property Tr(A+B) = Tr(A) + Tr(B).
@@ -120,7 +120,7 @@ class NetVarianceLoss:
             )
         except scipy.linalg.LinAlgError as err:
             raise ValueError("The covariance matrix is not positive definite.") from err
-        
+
         post_cov = self._calculate_posterior_covariance()
         post_cov_exp = self._expand_posterior_covariance(post_cov, X_new, dX_new)
         v = scipy.linalg.cho_solve((L_chol_exp, True), post_cov_exp.T)
@@ -129,7 +129,7 @@ class NetVarianceLoss:
         pred_cov_trace = kernel_star_trace - np.trace(post_cov_exp.dot(v))
 
         return 1 - pred_cov_trace / self.norm
-    
+
     def utility_quick(self, X, batch_size=512):
         X_new = np.atleast_2d(X)
         dX_new = X_new if self.gp._has_gradients else None
@@ -143,7 +143,7 @@ class NetVarianceLoss:
             )
         except scipy.linalg.LinAlgError as err:
             raise ValueError("The covariance matrix is not positive definite.") from err
-        
+
         post_cov = self._calculate_posterior_covariance()
         post_cov_exp = self._expand_posterior_covariance(post_cov, X_new, dX_new)
         v = scipy.linalg.cho_solve((L_chol_exp, True), post_cov_exp.T)
@@ -152,11 +152,10 @@ class NetVarianceLoss:
         pred_cov_trace = kernel_star_trace - np.trace(post_cov_exp.dot(v))
 
         return 1 - pred_cov_trace / self.norm
-    
+
     def _calculate_kernel_star_trace(self, X):
         if self._util_cache["kernel_star_trace"] is None:
-            kernel_star = self.gp.kernel._cov_yy(self._util_cache["X_util"], 
-                                                 add_noise=False)
+            kernel_star = self.gp.kernel._cov_yy(self._util_cache["X_util"], add_noise=False)
             self._util_cache["kernel_star_trace"] = np.trace(kernel_star)
         return self._util_cache["kernel_star_trace"]
 
@@ -173,17 +172,13 @@ class NetVarianceLoss:
             n_odX = self.gp.dX_train.shape[0]
             n_ndX = new_dX.shape[0]
             post_cov_wy = post_cov[:, n:].T
-            post_cov_wy_new = self.gp.kernel._cov_wy(
-                dX=new_dX, Y=self.X_util, idx=self.gp.idx
-            )
+            post_cov_wy_new = self.gp.kernel._cov_wy(dX=new_dX, Y=self.X_util, idx=self.gp.idx)
             post_cov_wy_exp = np.zeros(
                 ((n_odX + n_ndX) * self.gp._n_dims_der, self.X_util.shape[0])
             )
             for i in range(self.gp._n_dims_der):
                 low = i * (n_odX + n_ndX)
-                post_cov_wy_exp[low : low + n_odX, :] = post_cov_wy[
-                    i * n_odX : (i + 1) * n_odX, :
-                ]
+                post_cov_wy_exp[low : low + n_odX, :] = post_cov_wy[i * n_odX : (i + 1) * n_odX, :]
                 post_cov_wy_exp[low + n_odX : low + n_odX + n_ndX, :] = post_cov_wy_new[
                     i * n_ndX : (i + 1) * n_ndX, :
                 ]
@@ -194,9 +189,7 @@ class NetVarianceLoss:
 
     def _calculate_posterior_covariance(self):
         if self._util_cache["posterior_covariance"] is None:
-            post_cov_yy = self.gp.kernel._cov_yy(
-                X=self.X_util, Y=self.gp.X_train, add_noise=False
-            )
+            post_cov_yy = self.gp.kernel._cov_yy(X=self.X_util, Y=self.gp.X_train, add_noise=False)
             if self.gp._has_gradients:
                 post_cov_wy = self.gp.kernel._cov_wy(
                     dX=self.gp.dX_train, Y=self.X_util, idx=self.gp.idx
@@ -262,7 +255,7 @@ class GPUncertaintyOptimizer:
         gamma=0,
         acquisition_function=NetVarianceLoss,
         optimizer="L-BFGS-B",
-        n_restarts_optimizer=3,  
+        n_restarts_optimizer=3,
         use_approx_acq=False,
         batch_size=512,
     ):
@@ -326,7 +319,7 @@ class GPUncertaintyOptimizer:
         if self.verbose:
             plog = PrintLog(self._param_keys)
             plog.update_log(X=self.X_init, y=self.y_init, iter=0)
-  
+
         for i in range(self.n_iters):
             X_next, _ = self._find_next()
             y_next = self.function(X_next).reshape(1, 1)
@@ -377,8 +370,13 @@ class GPUncertaintyOptimizer:
         norm = self._current_net_variance()
 
         acq = NetVarianceLoss(self.gp_model, X_util, norm)
+
         def neg_acq_fun(X):
-            nac = -acq.approx_utility(X, self.batch_size) if self.use_approx_acq else -acq.utility(X, self.batch_size)
+            nac = (
+                -acq.approx_utility(X, self.batch_size)
+                if self.use_approx_acq
+                else -acq.utility(X, self.batch_size)
+            )
             return nac
 
         X0 = self.random_state.uniform(

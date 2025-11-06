@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.special import expit
 
+
 def sigmoid(x, c=0, a=1):
     return expit((x - c) / a)
 
@@ -20,7 +21,7 @@ def MET(nu_J1, nu_J23, threeM):
 
 def efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True):
     """Efficiency of the events with an MET of less than MET_cut GeVs.
-    X is the array of nuisance parameters. The first two columns contains the 
+    X is the array of nuisance parameters. The first two columns contains the
     nuisance parameter for the first (hardest) jet for |eta| < 1 and |eta| > 1.
     Likewise, the third and fourth columns the nuisance parameter for the
     second and third jets for |eta| < 1 and |eta| > 1. See paper for more details.
@@ -34,7 +35,9 @@ def efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True):
     eta_avg = np.average(events_threeM[:, 1:, 1], weights=events_threeM[:, 1:, 0], axis=1)
     nu_J23 = np.where(abs(eta_avg) < 1, nu_J23_in, nu_J23_out)
     # the rest is just like in the 2D case
-    ix_pT_cut = (events_threeM[:, 0, 0] / nu_J1 > pT_cut) & (events_threeM[:, 1, 0] / nu_J23 < pT_cut)
+    ix_pT_cut = (events_threeM[:, 0, 0] / nu_J1 > pT_cut) & (
+        events_threeM[:, 1, 0] / nu_J23 < pT_cut
+    )
     MET_vals = MET(nu_J1[ix_pT_cut], nu_J23[ix_pT_cut], events_threeM[ix_pT_cut])
     ix_MET_cut = MET_vals < MET_cut
     if normalized:
@@ -144,15 +147,11 @@ def der_efficiency(X, events_threeM, pT_cut=200, MET_cut=50, normalized=True, a=
 
     # combining the MET and pT sigmoids - and their chain rule terms
     MET_pT_sigmoids = pT_sig * MET_sig  # both cuts combined
-    dMET_pT_sigmoids_dnuJ = (
-        pT_sig * dMET_sig_dnuJ * dMET_dnuJ * dnu_J + dpT_sig_dnuJ * MET_sig
-    )
+    dMET_pT_sigmoids_dnuJ = pT_sig * dMET_sig_dnuJ * dMET_dnuJ * dnu_J + dpT_sig_dnuJ * MET_sig
 
     # final derivative of the efficiency
     deff_dnuJ = np.sum(dMET_pT_sigmoids_dnuJ, axis=0) / np.sum(pT_sig)
-    deff_dnuJ -= (
-        np.sum(MET_pT_sigmoids) / np.sum(pT_sig) ** 2 * np.sum(dpT_sig_dnuJ, axis=0)
-    )
+    deff_dnuJ -= np.sum(MET_pT_sigmoids) / np.sum(pT_sig) ** 2 * np.sum(dpT_sig_dnuJ, axis=0)
 
     if normalized:
         # using the regular efficiency values for the normalization.
