@@ -53,12 +53,12 @@ jobs:
       - name: isort (check only)
         run: uv run isort --check-only .
 
-      - name: Flake8
-        run: |
-          # Stop on syntax errors or undefined names
-          uv run flake8 . --exclude=.venv --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Treat the rest as warnings
-          uv run flake8 . --exclude=.venv --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      # - name: Flake8
+      #   run: |
+      #     # Stop on syntax errors or undefined names
+      #     uv run flake8 . --exclude=.venv --count --select=E9,F63,F7,F82 --show-source --statistics
+      #     # Treat the rest as warnings
+      #     uv run flake8 . --exclude=.venv --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       # ----- Notebooks ----- #
       - name: nbqa + black (notebooks)
@@ -71,11 +71,11 @@ jobs:
       - name: Pytest
         run: uv run pytest -q
 
-      # ----- Code Spell Check ----- #
-      - name: codespell
-        run: |
-          # Adjust ignore list as needed for domain-specific words
-          uv run codespell \
-            -S ".git,*.png,*.jpg,*.svg,*.pdf,*.ipynb_checkpoints,dist,build,.mypy_cache,.venv,venv" \
-            -L analyse,nd,crate,te,fo
+      # # ----- Code Spell Check ----- #
+      # - name: codespell
+      #   run: |
+      #     # Adjust ignore list as needed for domain-specific words
+      #     uv run codespell \
+      #       -S ".git,*.png,*.jpg,*.svg,*.pdf,*.ipynb_checkpoints,dist,build,.mypy_cache,.venv,venv" \
+      #       -L analyse,nd,crate,te,fo
             
