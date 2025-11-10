@@ -30,7 +30,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     amplitude_bounds: 'fixed' or pair of floats, default=(1e-5, 1e5)
         The lower and upper bounds of 'amplitude'.
         If 'fixed', the amplitude parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     length_scale: float or ndarray of shape (ndims,), default=1.0
         Length scale of the RBF kernel.
@@ -38,7 +38,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     length_scale_bounds: 'fixed' or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'length_scale'.
         If 'fixed', the length_scale parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     noise_level: float or None, default=1.0
         Square root if the variance of white noise added to the kernel between function observations.
@@ -46,7 +46,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     noise_level_bounds: 'fixed' or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'noise_level'.
         If 'fixed', the noise_level parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     noise_level_der: float, None, or ndarray of shape (ndim_dX), default=1.0
         Square root if the variance of the white noise added to the kernel between derivative observations.
@@ -54,7 +54,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     noise_level_der_bounds: "fixed" or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'noise_level_der'.
         If "fixed", the noise_level_der parameter is not changed during
-        the hyperparameter tunning.
+        the hyperparameter tuning.
 
     References
     ----------
@@ -312,7 +312,7 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
                     j * n_sampdY : (j + 1) * n_sampdY,
                 ] = K_ij
 
-                if add_noise and i_dim == j_dim:
+                if add_noise and self.noise_level_der > 0 and i_dim == j_dim:
                     K[
                         i * n_sampdX : (i + 1) * n_sampdX,
                         j * n_sampdY : (j + 1) * n_sampdY,
@@ -350,7 +350,11 @@ class DerivativeKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
 
                     # no dependence on noise_level
                     # with respect to the log noise_level_der parameter
-                    if add_noise and not self.hyperparameter_noise_level_der.fixed:
+                    if (
+                        add_noise
+                        and self.noise_level_der > 0
+                        and not self.hyperparameter_noise_level_der.fixed
+                    ):
                         if i_dim == j_dim:
                             if not self.anisotropic_noise_level_der:
                                 noise_grad = (

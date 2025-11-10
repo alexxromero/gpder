@@ -70,7 +70,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     amplitude_bounds: 'fixed' or pair of floats, default=(1e-5, 1e5)
         The lower and upper bounds of 'amplitude'.
         If 'fixed', the amplitude parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     length_scale: float or ndarray of shape (ndims,), default=1.0
         Length scale of the RBF kernel.
@@ -78,7 +78,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     length_scale_bounds: 'fixed' or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'length_scale'.
         If 'fixed', the length_scale parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     noise_level: float or None, default=0.01
         Square root if the variance of the added white noise.
@@ -86,7 +86,7 @@ class RegularKernel(StationaryKernelMixin, NormalizedKernelMixin, Kernel):
     noise_level_bounds: 'fixed' or pair of floats > 0, default=(1e-5, 1e5)
         The lower and upper bounds of 'noise_level'.
         If 'fixed', the noise_level parameter is not changed during
-        hyperparameter tunning.
+        hyperparameter tuning.
 
     References
     ----------

@@ -412,10 +412,10 @@ class GaussianProcessRegressor(MultiOutputMixin, RegressorMixin, BaseEstimator):
             Test input.
 
         X_train_query : ndarray, shape (n_samp, n_feat), default=None
-            This input is temporarely added to the training data when predicting 'X_predict'.
+            This input is temporarily added to the training data when predicting 'X_predict'.
 
         dX_train_query : ndarray, shape (n_samp_der, n_feat), default=None
-            This derivative input is temporarely added to the training data when predicting 'X_predict'.
+            This derivative input is temporarily added to the training data when predicting 'X_predict'.
 
         return_mean : bool, default=True
             Whether to return the mean of the predictive distribution.

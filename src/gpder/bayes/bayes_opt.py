@@ -203,7 +203,7 @@ class NetVarianceLoss:
 
 class GPUncertaintyOptimizer:
     """The GPUncertaintyOptimizer class performs bayesian optimization
-    for experimental design with the goal of minizing the net predictive
+    for experimental design with the goal of minimizing the net predictive
     variance of a GP model.
 
     Parameters
